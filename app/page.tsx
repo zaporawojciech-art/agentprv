@@ -90,27 +90,15 @@ function getWeatherLabel(code: number): string {
   return 'Umiarkowanie'
 }
 
-function getWeatherCardClasses(code: number): string {
-  if (code === 0)
-    return 'border-amber-400/35 bg-gradient-to-b from-amber-500/25 via-amber-500/10 to-[#18191b]'
-  if (code === 1 || code === 2)
-    return 'border-amber-300/30 bg-gradient-to-b from-amber-400/20 via-sky-500/10 to-[#18191b]'
-  if (code === 45 || code === 48)
-    return 'border-teal-400/30 bg-gradient-to-b from-teal-500/20 to-[#18191b]'
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82))
-    return 'border-cyan-400/40 bg-gradient-to-b from-cyan-500/25 via-blue-500/15 to-[#18191b]'
-  if (code >= 71 && code <= 86)
-    return 'border-indigo-300/40 bg-gradient-to-b from-indigo-500/25 to-[#18191b]'
-  if (code >= 95)
-    return 'border-purple-400/40 bg-gradient-to-b from-purple-500/25 via-amber-500/15 to-[#18191b]'
-  return 'border-sky-400/30 bg-gradient-to-b from-sky-500/20 via-slate-500/10 to-[#18191b]'
+function getWeatherCardClasses(_code?: number): string {
+  return 'border-white/[0.08] bg-[#1a1b1e] hover:border-white/[0.18] hover:bg-[#222428]'
 }
 
 function getTempColorClass(temp: number): string {
-  if (temp >= 20) return 'text-orange-300'
+  if (temp >= 20) return 'text-orange-400'
   if (temp >= 14) return 'text-amber-300'
-  if (temp >= 9) return 'text-emerald-300'
-  return 'text-sky-300'
+  if (temp >= 9) return 'text-emerald-400'
+  return 'text-zinc-200'
 }
 
 function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
@@ -140,7 +128,7 @@ function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
     )
   }
 
-  // 1, 2: Pogodnie — ŻÓŁTE słońce wystające zza BIAŁO-BŁĘKITNEJ chmury (wielokolorowa!)
+  // 1, 2: Pogodnie — ŻÓŁTE słońce + CZYSTA BIAŁA chmurka
   if (code === 1 || code === 2) {
     return (
       <svg
@@ -159,22 +147,18 @@ function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
         </g>
         {/* Żółta tarcza słońca */}
         <circle cx="11.5" cy="11.5" r="5.5" fill="#FACC15" stroke="#F59E0B" strokeWidth="1.2" />
-        {/* Biało-błękitna chmura na pierwszym planie */}
+        {/* Czysto biała chmura z neutralnym obrysem */}
         <path
           d="M11 25.5H23.5C26.26 25.5 28.5 23.26 28.5 20.5C28.5 17.92 26.55 15.8 24.04 15.53C23.42 11.83 20.2 9 16.3 9C12.35 9 9.1 11.9 8.54 15.68C6.25 16.22 4.5 18.27 4.5 20.75C4.5 23.37 6.63 25.5 9.25 25.5H11Z"
-          fill="#F8FAFC"
-          stroke="#93C5FD"
-          strokeWidth="1.4"
-        />
-        <path
-          d="M9 25.5H23.5C26.26 25.5 28.5 23.26 28.5 20.5C28.5 19.8 28.35 19.13 28.08 18.52C26.8 21.2 23.9 22.5 20 22.5H7C5.8 22.5 5 21.8 4.6 21.2C4.83 23.62 6.82 25.5 9.25 25.5Z"
-          fill="#BAE6FD"
+          fill="#FFFFFF"
+          stroke="#94A3B8"
+          strokeWidth="1.2"
         />
       </svg>
     )
   }
 
-  // 45, 48: Mgła — biało-szara chmura + turkusowe pasma mgły
+  // 45, 48: Mgła — biało-szara chmura + neutralne pasma mgły
   if (code === 45 || code === 48) {
     return (
       <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
@@ -184,26 +168,23 @@ function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
           stroke="#94A3B8"
           strokeWidth="1.2"
         />
-        <line x1="6" y1="23.5" x2="26" y2="23.5" stroke="#5EEAD4" strokeWidth="2.2" strokeLinecap="round" />
-        <line x1="9" y1="27" x2="23" y2="27" stroke="#2DD4BF" strokeWidth="2.2" strokeLinecap="round" />
+        <line x1="6" y1="23.5" x2="26" y2="23.5" stroke="#CBD5E1" strokeWidth="2.2" strokeLinecap="round" />
+        <line x1="9" y1="27" x2="23" y2="27" stroke="#94A3B8" strokeWidth="2.2" strokeLinecap="round" />
       </svg>
     )
   }
 
-  // 51..67, 80..82: Deszcz / Przelotny deszcz — żółty akcent słońca + biało-stalowa chmura + błękitne krople deszczu
+  // 51..67, 80..82: Deszcz / Przelotny deszcz — żółty akcent słońca + biała chmura + krople deszczu
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
     return (
       <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
-        {/* Delikatne żółte słońce z tyłu dla przelotnych opadów */}
         <circle cx="10" cy="9.5" r="4.2" fill="#FACC15" />
-        {/* Chmura deszczowa */}
         <path
           d="M9.5 21H23.5C26 21 28 19 28 16.5C28 14.18 26.25 12.27 23.98 12.03C23.42 8.89 20.68 6.5 17.35 6.5C13.98 6.5 11.2 8.96 10.72 12.18C8.65 12.67 7 14.52 7 16.75C7 19.1 8.9 21 11.25 21H9.5Z"
-          fill="#E2E8F0"
-          stroke="#60A5FA"
-          strokeWidth="1.3"
+          fill="#FFFFFF"
+          stroke="#94A3B8"
+          strokeWidth="1.2"
         />
-        {/* Niebiesko-cyjanowe krople deszczu */}
         <g stroke="#38BDF8" strokeWidth="2.3" strokeLinecap="round">
           <line x1="11.5" y1="24" x2="10" y2="28" />
           <line x1="16.5" y1="24" x2="15" y2="28" />
@@ -213,32 +194,32 @@ function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
     )
   }
 
-  // 71..86: Śnieg — jasna chmura + lodowo-błękitne płatki śniegu
+  // 71..86: Śnieg — biała chmura + śnieg
   if (code >= 71 && code <= 86) {
     return (
       <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
         <path
           d="M9.5 21H23.5C26 21 28 19 28 16.5C28 14.18 26.25 12.27 23.98 12.03C23.42 8.89 20.68 6.5 17.35 6.5C13.98 6.5 11.2 8.96 10.72 12.18C8.65 12.67 7 14.52 7 16.75C7 19.1 8.9 21 11.25 21H9.5Z"
-          fill="#F1F5F9"
-          stroke="#93C5FD"
-          strokeWidth="1.3"
+          fill="#FFFFFF"
+          stroke="#94A3B8"
+          strokeWidth="1.2"
         />
-        <circle cx="11.5" cy="25.5" r="1.8" fill="#67E8F9" />
-        <circle cx="16.5" cy="27" r="1.8" fill="#A5F3FC" />
-        <circle cx="21.5" cy="25.5" r="1.8" fill="#67E8F9" />
+        <circle cx="11.5" cy="25.5" r="1.8" fill="#E2E8F0" />
+        <circle cx="16.5" cy="27" r="1.8" fill="#E2E8F0" />
+        <circle cx="21.5" cy="25.5" r="1.8" fill="#E2E8F0" />
       </svg>
     )
   }
 
-  // >= 95: Burza — ciemniejsza chmura + jaskrawożółty piorun + błękitne krople
+  // >= 95: Burza — ciemniejsza chmura + żółty piorun
   if (code >= 95) {
     return (
       <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
         <path
           d="M9.5 20.5H23.5C26 20.5 28 18.5 28 16C28 13.68 26.25 11.77 23.98 11.53C23.42 8.39 20.68 6 17.35 6C13.98 6 11.2 8.46 10.72 11.68C8.65 12.17 7 14.02 7 16.25C7 18.6 8.9 20.5 11.25 20.5H9.5Z"
-          fill="#CBD5E1"
-          stroke="#64748B"
-          strokeWidth="1.3"
+          fill="#475569"
+          stroke="#334155"
+          strokeWidth="1.2"
         />
         <polygon
           points="17,18 12.5,24.5 16,24.5 14.5,30 21,22.5 17.2,22.5"
@@ -250,21 +231,21 @@ function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
     )
   }
 
-  // 3 (Domyślnie: Pochmurno) — dwuwarstwowe chmury (błękitno-szara z tyłu + biała z przodu)
+  // 3 (Domyślnie: Pochmurno) — eleganckie, naturalne biało-szare chmury
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
-      {/* Tylna błękitno-stalowa chmura */}
+      {/* Tylna szara chmura */}
       <path
         d="M14 19H25.5C27.7 19 29.5 17.2 29.5 15C29.5 12.95 27.95 11.27 25.95 11.05C25.45 8.2 22.98 6 20 6C16.95 6 14.43 8.28 14 11.2"
-        fill="#93C5FD"
-        opacity="0.75"
+        fill="#64748B"
+        opacity="0.6"
       />
-      {/* Przednia śnieżnobiała chmura z błękitnym obrysem */}
+      {/* Przednia czysta biała chmura z neutralnym obrysem */}
       <path
         d="M9.5 24.5H22.5C25.26 24.5 27.5 22.26 27.5 19.5C27.5 16.92 25.55 14.8 23.04 14.53C22.42 10.83 19.2 8 15.3 8C11.35 8 8.1 10.9 7.54 14.68C5.25 15.22 3.5 17.27 3.5 19.75C3.5 22.37 5.63 24.5 8.25 24.5H9.5Z"
-        fill="#F8FAFC"
-        stroke="#60A5FA"
-        strokeWidth="1.3"
+        fill="#FFFFFF"
+        stroke="#94A3B8"
+        strokeWidth="1.2"
       />
     </svg>
   )
@@ -670,8 +651,8 @@ export default function Page() {
                   <WeatherIcon code={currentWeather.code} size={32} />
                 </div>
                 <div>
-                  <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-sky-300">
-                    <MapPin size={11} className="text-sky-400" />
+                  <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    <MapPin size={11} className="text-zinc-400" />
                     <span>Mińsk Maz.</span>
                   </div>
                   <div className="mt-0.5 flex items-baseline gap-2">
