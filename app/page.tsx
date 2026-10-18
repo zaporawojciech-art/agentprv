@@ -68,6 +68,7 @@ export default function Page() {
   const [isListening, setIsListening] = useState(false)
   const [assistantPrompt, setAssistantPrompt] = useState('„Zaplanuj mi spokojne popołudnie”')
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [currentTime, setCurrentTime] = useState('21:00')
 
   const completed = useMemo(() => events.filter((event) => event.active).length, [events])
   const progressPercent = useMemo(
@@ -76,6 +77,18 @@ export default function Page() {
   )
 
   useEffect(() => {
+    const updateClock = () => {
+      const now = new Date()
+      setCurrentTime(
+        now.toLocaleTimeString('pl-PL', {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      )
+    }
+    updateClock()
+    const timer = setInterval(updateClock, 15000)
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
@@ -89,9 +102,11 @@ export default function Page() {
       setIsFullscreen(Boolean(document.fullscreenElement))
     }
 
+    window.addEventListener('beforeinstallprompt', handleFullscreenChange)
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => {
+      clearInterval(timer)
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
@@ -165,7 +180,7 @@ export default function Page() {
           <div className="flex items-center gap-6">
             <div>
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                Dzisiaj · Środa, {selectedDate} października
+                Dzisiaj · Środa, {selectedDate} października · {currentTime}
               </p>
               <h1 className="mt-0.5 text-2xl font-semibold tracking-[-0.04em] text-[#f3f3f1]">
                 Dzień dobry, Wojtek.
