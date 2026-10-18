@@ -63,26 +63,83 @@ const fallbackHourlyForecast: HourlyForecastItem[] = [
 ]
 
 function getWeatherLabel(code: number): string {
-  if (code === 0) return 'Bezchmurnie'
+  if (code === 0) return 'Słonecznie'
   if (code === 1 || code === 2) return 'Pogodnie'
-  if (code === 3) return 'Zachmurzenie'
+  if (code === 3) return 'Pochmurno'
   if (code === 45 || code === 48) return 'Mgła'
-  if (code >= 51 && code <= 67) return 'Opady deszczu'
-  if (code >= 71 && code <= 77) return 'Opady śniegu'
+  if (code >= 51 && code <= 67) return 'Deszcz'
+  if (code >= 71 && code <= 77) return 'Śnieg'
   if (code >= 80 && code <= 82) return 'Przelotny deszcz'
   if (code >= 95) return 'Burza'
   return 'Umiarkowanie'
 }
 
-function WeatherIcon({ code, size = 14 }: { code: number; size?: number }) {
-  if (code === 0) return <Sun size={size} className="text-[#e5c07b]" />
-  if (code === 1 || code === 2) return <CloudSun size={size} className="text-[#d8d8d6]" />
-  if (code === 45 || code === 48) return <CloudFog size={size} className="text-[#8e9092]" />
+function getWeatherCardClasses(code: number): string {
+  if (code === 0)
+    return 'border-amber-400/35 bg-gradient-to-b from-amber-500/25 via-amber-500/10 to-[#18191b]'
+  if (code === 1 || code === 2)
+    return 'border-amber-300/30 bg-gradient-to-b from-amber-400/20 via-sky-500/10 to-[#18191b]'
+  if (code === 45 || code === 48)
+    return 'border-teal-400/30 bg-gradient-to-b from-teal-500/20 to-[#18191b]'
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82))
-    return <CloudRain size={size} className="text-[#8ab4f8]" />
-  if (code >= 71 && code <= 86) return <CloudSnow size={size} className="text-[#cbe1ff]" />
-  if (code >= 95) return <CloudLightning size={size} className="text-[#e5c07b]" />
-  return <Cloud size={size} className="text-[#9a9c9e]" />
+    return 'border-cyan-400/40 bg-gradient-to-b from-cyan-500/25 via-blue-500/15 to-[#18191b]'
+  if (code >= 71 && code <= 86)
+    return 'border-indigo-300/40 bg-gradient-to-b from-indigo-500/25 to-[#18191b]'
+  if (code >= 95)
+    return 'border-purple-400/40 bg-gradient-to-b from-purple-500/25 via-amber-500/15 to-[#18191b]'
+  return 'border-sky-400/30 bg-gradient-to-b from-sky-500/20 via-slate-500/10 to-[#18191b]'
+}
+
+function getTempColorClass(temp: number): string {
+  if (temp >= 20) return 'text-orange-300'
+  if (temp >= 14) return 'text-amber-300'
+  if (temp >= 9) return 'text-emerald-300'
+  return 'text-sky-300'
+}
+
+function WeatherIcon({ code, size = 18 }: { code: number; size?: number }) {
+  if (code === 0)
+    return (
+      <Sun
+        size={size}
+        className="fill-amber-400/30 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.55)]"
+      />
+    )
+  if (code === 1 || code === 2)
+    return (
+      <CloudSun
+        size={size}
+        className="text-amber-300 drop-shadow-[0_0_7px_rgba(252,211,77,0.45)]"
+      />
+    )
+  if (code === 45 || code === 48)
+    return (
+      <CloudFog size={size} className="text-teal-300 drop-shadow-[0_0_6px_rgba(94,234,212,0.4)]" />
+    )
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82))
+    return (
+      <CloudRain
+        size={size}
+        className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.55)]"
+      />
+    )
+  if (code >= 71 && code <= 86)
+    return (
+      <CloudSnow
+        size={size}
+        className="text-indigo-300 drop-shadow-[0_0_8px_rgba(165,180,252,0.55)]"
+      />
+    )
+  if (code >= 95)
+    return (
+      <CloudLightning
+        size={size}
+        className="text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.65)]"
+      />
+    )
+  return (
+    <Cloud size={size} className="text-sky-300 drop-shadow-[0_0_6px_rgba(125,211,252,0.4)]" />
+  )
 }
 
 const weekDays = [
@@ -465,22 +522,30 @@ export default function Page() {
             <div className="hidden h-9 w-px shrink-0 bg-white/[0.08] md:block" />
 
             {/* Horizontal Weather Widget — Mińsk Mazowiecki (Aktualna + 12h dziennych bez 22:00-06:00) */}
-            <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-white/[0.07] bg-[#1b1c1d] px-3 py-1.5">
+            <div className="flex min-w-0 flex-1 items-center gap-3.5 rounded-2xl border border-white/[0.12] bg-[#181a1d] px-3.5 py-2 shadow-inner">
               {/* Current weather in Mińsk Mazowiecki */}
-              <div className="flex shrink-0 items-center gap-2.5 border-r border-white/[0.08] pr-3">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-[#252628]">
-                  <WeatherIcon code={currentWeather.code} size={17} />
+              <div
+                className={`flex shrink-0 items-center gap-3 rounded-xl border px-3 py-1.5 ${getWeatherCardClasses(
+                  currentWeather.code
+                )}`}
+              >
+                <div className="flex size-10 items-center justify-center rounded-xl bg-black/30">
+                  <WeatherIcon code={currentWeather.code} size={24} />
                 </div>
                 <div>
-                  <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-[#7c7e81]">
-                    <MapPin size={10} className="text-[#8e9092]" />
+                  <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-sky-300">
+                    <MapPin size={11} className="text-sky-400" />
                     <span>Mińsk Maz.</span>
                   </div>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-sm font-semibold tabular-nums text-[#f3f3f1]">
+                  <div className="mt-0.5 flex items-baseline gap-2">
+                    <span
+                      className={`text-xl font-bold leading-none tabular-nums ${getTempColorClass(
+                        currentWeather.temp
+                      )}`}
+                    >
                       {currentWeather.temp}°C
                     </span>
-                    <span className="text-[11px] text-[#8e9092]">
+                    <span className="text-xs font-semibold text-white">
                       {getWeatherLabel(currentWeather.code)}
                     </span>
                   </div>
@@ -488,15 +553,21 @@ export default function Page() {
               </div>
 
               {/* 12-hour horizontal daytime forecast (skipping 22:00 - 06:00) */}
-              <div className="custom-scroll flex min-w-0 flex-1 items-center justify-between gap-1 overflow-x-auto py-0.5">
+              <div className="custom-scroll flex min-w-0 flex-1 items-center justify-between gap-1.5 overflow-x-auto py-0.5">
                 {hourlyForecast.map((slot) => (
                   <div
                     key={slot.hour}
-                    className="flex min-w-[42px] shrink-0 flex-col items-center gap-0.5 rounded-lg px-1.5 py-1 transition hover:bg-white/[0.05]"
+                    className={`flex min-w-[54px] shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-1.5 transition hover:scale-[1.03] ${getWeatherCardClasses(
+                      slot.code
+                    )}`}
                   >
-                    <span className="text-[10px] tabular-nums text-[#77797c]">{slot.hour}</span>
-                    <WeatherIcon code={slot.code} size={13} />
-                    <span className="text-[11px] font-medium tabular-nums text-[#e2e2e0]">
+                    <span className="text-[11px] font-semibold tabular-nums text-zinc-200">
+                      {slot.hour}
+                    </span>
+                    <WeatherIcon code={slot.code} size={18} />
+                    <span
+                      className={`text-xs font-bold tabular-nums ${getTempColorClass(slot.temp)}`}
+                    >
                       {slot.temp}°
                     </span>
                   </div>
