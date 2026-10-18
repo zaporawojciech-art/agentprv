@@ -14,6 +14,7 @@ import {
   CloudSnow,
   CloudSun,
   Command,
+  DollarSign,
   Link2,
   ListTodo,
   MapPin,
@@ -26,6 +27,10 @@ import {
   Sparkles,
   Sun,
   SunMedium,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
   X,
 } from 'lucide-react'
 
@@ -48,6 +53,16 @@ interface CalendarEventItem {
   type: string
   active: boolean
   dateStr?: string
+}
+
+interface StockHolding {
+  id: string
+  ticker: string
+  name: string
+  shares: number
+  invested: number
+  currentPrice: number
+  category: 'ETF' | 'US' | 'GPW'
 }
 
 function buildDynamicFallbackForecast(): HourlyForecastItem[] {
@@ -269,11 +284,43 @@ const initialEvents: CalendarEventItem[] = [
   { time: '18:30', title: 'Wieczorna rutyna', meta: 'Dom · 45 min', type: 'routine', active: false },
 ]
 
-const initialRoutines = [
-  { id: 1, title: 'Nawodnić rośliny', subtitle: 'Rutyna poranna', done: true },
-  { id: 2, title: 'Przygotować listę zakupów', subtitle: 'Do końca dnia', done: false },
-  { id: 3, title: 'Zamówić filtry do wody', subtitle: 'Bez terminu', done: false },
-  { id: 4, title: 'Przewietrzyć sypialnię', subtitle: 'Rutyna wieczorna', done: false },
+const initialHoldings: StockHolding[] = [
+  {
+    id: '1',
+    ticker: 'VWCE',
+    name: 'Vanguard FTSE All-World',
+    shares: 1.85,
+    invested: 1000,
+    currentPrice: 565,
+    category: 'ETF',
+  },
+  {
+    id: '2',
+    ticker: 'AAPL',
+    name: 'Apple Inc.',
+    shares: 0.45,
+    invested: 380,
+    currentPrice: 920,
+    category: 'US',
+  },
+  {
+    id: '3',
+    ticker: 'MSFT',
+    name: 'Microsoft Corp.',
+    shares: 0.25,
+    invested: 400,
+    currentPrice: 1720,
+    category: 'US',
+  },
+  {
+    id: '4',
+    ticker: 'PKN',
+    name: 'Orlen SA',
+    shares: 6,
+    invested: 390,
+    currentPrice: 62.5,
+    category: 'GPW',
+  },
 ]
 
 const calendarCells = [
@@ -286,14 +333,49 @@ export default function Page() {
   const [view, setView] = useState<'Dzień' | 'Tydzień'>('Dzień')
   const [events, setEvents] = useState<CalendarEventItem[]>(initialEvents)
   const [allMonthEvents, setAllMonthEvents] = useState<CalendarEventItem[]>([])
-  const [routines, setRoutines] = useState(initialRoutines)
+  
+  // Portfel akcji (drobne kwoty, ułamkowe akcje, ETF)
+  const [holdings, setHoldings] = useState<StockHolding[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('agentprv_stocks_holdings')
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed
+        } catch {}
+      }
+    }
+    return initialHoldings
+  })
+
+  const [showStockModal, setShowStockModal] = useState(false)
+  const [newStockTicker, setNewStockTicker] = useState('')
+  const [newStockName, setNewStockName] = useState('')
+  const [newStockAmount, setNewStockAmount] = useState('')
+  const [newStockShares, setNewStockShares] = useState('')
+  const [newStockCategory, setNewStockCategory] = useState<'ETF' | 'US' | 'GPW'>('ETF')
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('agentprv_stocks_holdings', JSON.stringify(holdings))
+    }
+  }, [holdings])
+
+  const portfolioSummary = useMemo(() => {
+    const totalValue = holdings.reduce((sum, h) => sum + h.shares * h.currentPrice, 0)
+    const totalInvested = holdings.reduce((sum, h) => sum + h.invested, 0)
+    const totalProfit = totalValue - totalInvested
+    const totalProfitPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
+    return { totalValue, totalInvested, totalProfit, totalProfitPct }
+  }, [holdings])
+
   const [showComposer, setShowComposer] = useState(false)
   const [newTask, setNewTask] = useState('')
   const [newTaskTime, setNewTaskTime] = useState('20:00')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [ambientDim, setAmbientDim] = useState(false)
   const [isListening, setIsListening] = useState(false)
-  const [assistantPrompt, setAssistantPrompt] = useState('„Zaplanuj mi spokojne popołudnie”')
+  const [assistantPrompt, setAssistantPrompt] = useState('„Ile wart jest mój portfel?”')
   const [currentTime, setCurrentTime] = useState('21:30')
   const [currentWeather, setCurrentWeather] = useState<{ temp: number; code: number }>({
     temp: 11,
@@ -572,10 +654,32 @@ export default function Page() {
     )
   }
 
-  function toggleRoutine(id: number) {
-    setRoutines((current) =>
-      current.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
-    )
+  function handleAddStock() {
+    if (!newStockTicker.trim()) return
+    const amount = parseFloat(newStockAmount) || 100
+    const shares = parseFloat(newStockShares) || 1
+    const price = shares > 0 ? amount / shares : amount
+
+    const newHolding: StockHolding = {
+      id: Date.now().toString(),
+      ticker: newStockTicker.trim().toUpperCase(),
+      name: newStockName.trim() || newStockTicker.trim().toUpperCase(),
+      shares,
+      invested: amount,
+      currentPrice: price,
+      category: newStockCategory,
+    }
+
+    setHoldings((prev) => [...prev, newHolding])
+    setShowStockModal(false)
+    setNewStockTicker('')
+    setNewStockName('')
+    setNewStockAmount('')
+    setNewStockShares('')
+  }
+
+  function handleDeleteStock(id: string) {
+    setHoldings((prev) => prev.filter((h) => h.id !== id))
   }
 
   async function addTask() {
@@ -835,11 +939,16 @@ export default function Page() {
                   </p>
                 </div>
                 <div className="rounded-xl bg-[#1d1e1f] py-2.5">
-                  <p className="text-base font-semibold text-[#f3f3f1]">
-                    {routines.filter((r) => !r.done).length}
+                  <p
+                    className={`text-base font-semibold tabular-nums ${
+                      portfolioSummary.totalProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {portfolioSummary.totalProfit >= 0 ? '+' : ''}
+                    {portfolioSummary.totalProfitPct.toFixed(1)}%
                   </p>
                   <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[#6f7174]">
-                    zadania
+                    portfel
                   </p>
                 </div>
               </div>
@@ -1047,52 +1156,155 @@ export default function Page() {
             )}
           </div>
 
-          {/* Column 3: Routines & Voice Assistant Dock (3 cols) */}
+          {/* Column 3: Portfel Akcji & Asystent (3 cols) */}
           <aside className="col-span-3 flex min-h-0 flex-col gap-4">
-            {/* Routines & Tasks Card */}
+            {/* Portfolio Card */}
             <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-4">
+              {/* Header */}
               <div className="mb-3.5 flex shrink-0 items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <ListTodo size={16} className="text-[#929497]" />
-                  <h2 className="text-sm font-semibold text-[#f3f3f1]">Rutyny i zadania</h2>
+                  <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                    <TrendingUp size={16} />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-[#f3f3f1]">Portfel akcji</h2>
+                    <p className="text-[10px] text-[#737578]">Drobne kwoty · Inwestowanie</p>
+                  </div>
                 </div>
                 <button
-                  onClick={() => setShowComposer(true)}
-                  className="text-xs font-medium text-[#8d8f91] transition hover:text-white"
+                  type="button"
+                  onClick={() => setShowStockModal(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#e9e9e7] px-3 py-1.5 text-xs font-semibold text-[#171819] transition hover:bg-white active:scale-[0.98]"
                 >
-                  + Dodaj
+                  <Plus size={13} />
+                  <span>Kup</span>
                 </button>
               </div>
 
-              <div className="custom-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
-                {routines.map((routine) => (
-                  <button
-                    key={routine.id}
-                    type="button"
-                    onClick={() => toggleRoutine(routine.id)}
-                    className="flex w-full items-start gap-3 rounded-xl border border-white/[0.06] bg-[#1b1c1d] p-3 text-left transition hover:border-white/[0.14] active:scale-[0.99]"
+              {/* Portfolio Summary Banner */}
+              <div className="mb-3 rounded-xl border border-white/[0.07] bg-[#1a1b1d] p-3">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-[#737578]">
+                    Wartość portfela
+                  </span>
+                  <div
+                    className={`flex items-center gap-1 text-xs font-semibold tabular-nums ${
+                      portfolioSummary.totalProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
                   >
-                    <div
-                      className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full transition ${
-                        routine.done
-                          ? 'bg-[#dededc] text-[#171819]'
-                          : 'border border-[#55575a] text-transparent'
-                      }`}
-                    >
-                      <Check size={12} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={`truncate text-sm transition ${
-                          routine.done ? 'text-[#7e8082] line-through' : 'text-[#d7d7d5]'
-                        }`}
+                    {portfolioSummary.totalProfit >= 0 ? (
+                      <TrendingUp size={13} />
+                    ) : (
+                      <TrendingDown size={13} />
+                    )}
+                    <span>
+                      {portfolioSummary.totalProfit >= 0 ? '+' : ''}
+                      {portfolioSummary.totalProfit.toFixed(2)} zł ({portfolioSummary.totalProfit >= 0 ? '+' : ''}
+                      {portfolioSummary.totalProfitPct.toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <p className="text-xl font-bold tracking-tight text-white tabular-nums">
+                    {portfolioSummary.totalValue.toLocaleString('pl-PL', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    zł
+                  </p>
+                  <span className="text-[11px] text-[#737578] tabular-nums">
+                    wkład: {portfolioSummary.totalInvested.toLocaleString('pl-PL', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    zł
+                  </span>
+                </div>
+              </div>
+
+              {/* Stock Holdings List */}
+              <div className="custom-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+                {holdings.length > 0 ? (
+                  holdings.map((stock) => {
+                    const val = stock.shares * stock.currentPrice
+                    const profit = val - stock.invested
+                    const profitPct = stock.invested > 0 ? (profit / stock.invested) * 100 : 0
+                    const isProfit = profit >= 0
+
+                    return (
+                      <div
+                        key={stock.id}
+                        className="group flex items-center justify-between rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5 transition hover:border-white/[0.14] hover:bg-[#202225]"
                       >
-                        {routine.title}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-[#616366]">{routine.subtitle}</p>
-                    </div>
-                  </button>
-                ))}
+                        <div className="min-w-0 flex-1 pr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold tracking-wide text-white">
+                              {stock.ticker}
+                            </span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                stock.category === 'ETF'
+                                  ? 'bg-blue-500/15 text-blue-400'
+                                  : stock.category === 'US'
+                                  ? 'bg-amber-500/15 text-amber-400'
+                                  : 'bg-emerald-500/15 text-emerald-400'
+                              }`}
+                            >
+                              {stock.category}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 truncate text-[11px] text-[#8e9093]">
+                            {stock.name} · {stock.shares} {stock.shares === 1 ? 'akcja' : 'akcji'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <p className="text-xs font-semibold tabular-nums text-white">
+                              {val.toLocaleString('pl-PL', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}{' '}
+                              zł
+                            </p>
+                            <p
+                              className={`mt-0.5 text-[10px] font-medium tabular-nums ${
+                                isProfit ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              {isProfit ? '+' : ''}
+                              {profit.toFixed(2)} zł ({isProfit ? '+' : ''}
+                              {profitPct.toFixed(1)}%)
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStock(stock.id)}
+                            className="p-1 text-[#6b6d70] opacity-0 transition group-hover:opacity-100 hover:text-rose-400"
+                            title="Usuń z portfela"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] p-4 text-center">
+                    <p className="text-xs font-medium text-[#bfc0be]">Twój portfel jest pusty</p>
+                    <p className="mt-0.5 text-[11px] text-[#6f7174]">
+                      Zacznij od drobnej kwoty, np. 50 zł w globalny ETF.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowStockModal(true)}
+                      className="mt-3 flex items-center gap-1 rounded-lg bg-white/[0.08] px-3 py-1.5 text-xs text-white hover:bg-white/[0.14]"
+                    >
+                      <Plus size={13} /> Dodaj pozycję
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1101,7 +1313,7 @@ export default function Page() {
               <div className="flex items-center justify-between text-[#9a9c9e]">
                 <div className="flex items-center gap-2">
                   <Mic size={16} className={isListening ? 'animate-pulse text-white' : ''} />
-                  <span className="text-xs font-medium">Zapytaj swojego asystenta</span>
+                  <span className="text-xs font-medium">Asystent osobisty & finanse</span>
                 </div>
                 <Sparkles size={14} className="text-[#6f7174]" />
               </div>
@@ -1110,8 +1322,9 @@ export default function Page() {
 
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {[
-                  '„Zaplanuj mi spokojne popołudnie”',
-                  '„Przesuń blok pracy na 11:00”',
+                  '„Ile wart jest mój portfel?”',
+                  '„Zainwestuj 50 zł w Vanguard All-World”',
+                  '„Zaplanuj mój dzień”',
                 ].map((suggestion) => (
                   <button
                     key={suggestion}
@@ -1140,6 +1353,146 @@ export default function Page() {
           </aside>
         </section>
       </div>
+
+      {/* Modal: Dodaj akcje / ETF do portfela */}
+      {showStockModal && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#1b1c1d] p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
+                  <TrendingUp size={18} />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-[#f3f3f1]">Kup akcje lub ETF</h2>
+                  <p className="text-[11px] text-[#77797c]">
+                    Drobne kwoty · Ułamkowe akcje · Portfel
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStockModal(false)}
+                className="rounded-lg p-1 text-[#85878a] hover:bg-white/[0.06] hover:text-white"
+                aria-label="Zamknij"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {/* Kategoria */}
+              <div className="flex rounded-xl border border-white/[0.08] bg-[#121314] p-1">
+                {(['ETF', 'US', 'GPW'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setNewStockCategory(cat)}
+                    className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition ${
+                      newStockCategory === cat
+                        ? 'bg-[#2b2c2e] text-white shadow-sm'
+                        : 'text-[#77797c] hover:text-white'
+                    }`}
+                  >
+                    {cat === 'ETF' ? 'Globalny ETF' : cat === 'US' ? 'Akcje US' : 'Polska GPW'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Ticker & Nazwa */}
+              <div className="flex gap-2.5">
+                <div className="w-1/3">
+                  <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[#737578]">
+                    Ticker
+                  </label>
+                  <input
+                    autoFocus
+                    value={newStockTicker}
+                    onChange={(e) => setNewStockTicker(e.target.value)}
+                    placeholder="Np. VWCE"
+                    className="w-full rounded-xl border border-white/[0.1] bg-[#121314] px-3 py-2.5 text-xs font-bold uppercase text-white outline-none placeholder:normal-case placeholder:font-normal placeholder:text-[#555] focus:border-white/[0.3]"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[#737578]">
+                    Nazwa spółki / funduszu
+                  </label>
+                  <input
+                    value={newStockName}
+                    onChange={(e) => setNewStockName(e.target.value)}
+                    placeholder="Np. Vanguard All-World"
+                    className="w-full rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2.5 text-xs text-white outline-none placeholder:text-[#555] focus:border-white/[0.3]"
+                  />
+                </div>
+              </div>
+
+              {/* Kwota w PLN i szybkie przyciski */}
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[#737578]">
+                  Kwota inwestycji (PLN)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={newStockAmount}
+                    onChange={(e) => setNewStockAmount(e.target.value)}
+                    placeholder="100"
+                    className="w-full rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2.5 pr-12 text-sm font-semibold tabular-nums text-white outline-none placeholder:text-[#555] focus:border-white/[0.3]"
+                  />
+                  <span className="pointer-events-none absolute right-3.5 top-2.5 text-xs font-medium text-[#737578]">
+                    zł
+                  </span>
+                </div>
+
+                <div className="mt-2 flex gap-1.5">
+                  {[50, 100, 200, 500].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setNewStockAmount(String(amt))}
+                      className="flex-1 rounded-lg border border-white/[0.06] bg-[#151617] py-1 text-[11px] font-medium text-[#8d8f92] hover:border-white/[0.15] hover:text-white"
+                    >
+                      {amt} zł
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Ułamkowe akcje */}
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[#737578]">
+                  Liczba akcji / jednostek (ułamkowo)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newStockShares}
+                  onChange={(e) => setNewStockShares(e.target.value)}
+                  placeholder="Np. 0.25 (lub 1)"
+                  className="w-full rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2 text-xs tabular-nums text-white outline-none placeholder:text-[#555] focus:border-white/[0.3]"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowStockModal(false)}
+                className="rounded-xl px-4 py-2 text-xs text-[#85878a] hover:text-white"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={handleAddStock}
+                className="rounded-xl bg-[#e9e9e7] px-4 py-2 text-xs font-semibold text-[#171819] transition hover:bg-white"
+              >
+                Dodaj do portfela
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Dodaj zadanie / wydarzenie */}
       {showComposer && (
