@@ -32,9 +32,12 @@ import {
 const GOOGLE_CALENDAR_EMAIL = 'zaporawojciech@gmail.com'
 
 interface HourlyForecastItem {
+  id: string
   hour: string
   temp: number
   code: number
+  isNow?: boolean
+  isTomorrow?: boolean
 }
 
 interface CalendarEventItem {
@@ -47,20 +50,33 @@ interface CalendarEventItem {
   dateStr?: string
 }
 
-const fallbackHourlyForecast: HourlyForecastItem[] = [
-  { hour: '07:00', temp: 7, code: 2 },
-  { hour: '08:00', temp: 9, code: 2 },
-  { hour: '09:00', temp: 11, code: 1 },
-  { hour: '10:00', temp: 13, code: 1 },
-  { hour: '11:00', temp: 14, code: 0 },
-  { hour: '12:00', temp: 15, code: 0 },
-  { hour: '13:00', temp: 16, code: 1 },
-  { hour: '14:00', temp: 16, code: 1 },
-  { hour: '15:00', temp: 15, code: 2 },
-  { hour: '16:00', temp: 14, code: 2 },
-  { hour: '17:00', temp: 12, code: 3 },
-  { hour: '18:00', temp: 11, code: 2 },
-]
+function buildDynamicFallbackForecast(): HourlyForecastItem[] {
+  const now = new Date()
+  const result: HourlyForecastItem[] = []
+  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), 0, 0)
+  const todayDate = now.getDate()
+
+  for (let step = 0; step < 48 && result.length < 12; step++) {
+    const h = cursor.getHours()
+    if (h < 22 && h > 6) {
+      const isNow = step === 0
+      const isTomorrow = cursor.getDate() !== todayDate
+      const hourLabel = `${String(h).padStart(2, '0')}:00`
+      const sampleTemp = h >= 12 && h <= 16 ? 15 : h >= 9 && h <= 18 ? 12 : 9
+      const sampleCode = h >= 11 && h <= 15 ? 0 : 1
+      result.push({
+        id: `${cursor.getDate()}-${hourLabel}`,
+        hour: hourLabel,
+        temp: sampleTemp,
+        code: sampleCode,
+        isNow,
+        isTomorrow,
+      })
+    }
+    cursor.setHours(cursor.getHours() + 1)
+  }
+  return result
+}
 
 function getWeatherLabel(code: number): string {
   if (code === 0) return 'Słonecznie'
@@ -302,8 +318,9 @@ export default function Page() {
     temp: 11,
     code: 2,
   })
-  const [hourlyForecast, setHourlyForecast] =
-    useState<HourlyForecastItem[]>(fallbackHourlyForecast)
+  const [hourlyForecast, setHourlyForecast] = useState<HourlyForecastItem[]>(() =>
+    buildDynamicFallbackForecast()
+  )
 
   // Google Calendar state (zaporawojciech@gmail.com)
   const [gcalConnected, setGcalConnected] = useState(false)
@@ -434,6 +451,7 @@ export default function Page() {
 
         if (data?.hourly?.time && data?.hourly?.temperature_2m) {
           const now = new Date()
+          const todayDay = now.getDate()
           const currentHourTimestamp = new Date(
             now.getFullYear(),
             now.getMonth(),
@@ -448,6 +466,7 @@ export default function Page() {
           for (let i = 0; i < data.hourly.time.length; i++) {
             const isoTime: string = data.hourly.time[i]
             const itemDate = new Date(isoTime)
+            // Odrzuć wszystkie minione godziny (np. jeśli jest 10:00, odrzuca 07:00, 08:00, 09:00 z dzisiaj)
             if (itemDate.getTime() < currentHourTimestamp) continue
 
             const hourNum = itemDate.getHours()
@@ -455,10 +474,16 @@ export default function Page() {
             if (hourNum >= 22 || hourNum <= 6) continue
 
             const hourLabel = `${String(hourNum).padStart(2, '0')}:00`
+            const isNow = itemDate.getTime() === currentHourTimestamp
+            const isTomorrow = itemDate.getDate() !== todayDay
+
             nextDaytimeHours.push({
+              id: isoTime,
               hour: hourLabel,
               temp: Math.round(data.hourly.temperature_2m[i]),
               code: data.hourly.weather_code?.[i] ?? 1,
+              isNow,
+              isTomorrow,
             })
 
             if (nextDaytimeHours.length >= 12) break
@@ -666,24 +691,32 @@ export default function Page() {
 
               {/* 12-hour horizontal daytime forecast (skipping 22:00 - 06:00) */}
               <div className="custom-scroll flex min-w-0 flex-1 items-center justify-between gap-1.5 overflow-x-auto py-0.5">
-                {hourlyForecast.map((slot) => (
-                  <div
-                    key={slot.hour}
-                    className={`flex min-w-[58px] shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-1.5 transition hover:scale-[1.03] ${getWeatherCardClasses(
-                      slot.code
-                    )}`}
-                  >
-                    <span className="text-[11px] font-semibold tabular-nums text-white">
-                      {slot.hour}
-                    </span>
-                    <WeatherIcon code={slot.code} size={26} />
-                    <span
-                      className={`text-xs font-bold tabular-nums ${getTempColorClass(slot.temp)}`}
+                {hourlyForecast.map((slot, idx) => {
+                  const showTomorrowTag =
+                    slot.isTomorrow && (idx === 0 || !hourlyForecast[idx - 1]?.isTomorrow)
+                  return (
+                    <div
+                      key={slot.id}
+                      className={`flex min-w-[58px] shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-1.5 transition hover:scale-[1.03] ${getWeatherCardClasses(
+                        slot.code
+                      )}`}
                     >
-                      {slot.temp}°
-                    </span>
-                  </div>
-                ))}
+                      <span className="text-[11px] font-semibold tabular-nums text-white">
+                        {slot.isNow
+                          ? 'Teraz'
+                          : showTomorrowTag
+                            ? `Jutro ${slot.hour}`
+                            : slot.hour}
+                      </span>
+                      <WeatherIcon code={slot.code} size={26} />
+                      <span
+                        className={`text-xs font-bold tabular-nums ${getTempColorClass(slot.temp)}`}
+                      >
+                        {slot.temp}°
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </div>
