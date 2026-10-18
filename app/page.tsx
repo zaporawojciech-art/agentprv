@@ -527,39 +527,47 @@ export default function Page() {
     []
   )
 
-  const syncGoogleFit = useCallback(async (customToken?: string) => {
-    setFitLoading(true)
-    try {
-      const savedToken =
-        customToken !== undefined
-          ? customToken
-          : typeof window !== 'undefined'
-            ? localStorage.getItem('gcal_oauth_token') || ''
-            : ''
-      const res = await fetch('/api/fitness', {
-        headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
-      })
-      if (!res.ok) return
-      const json = await res.json()
-      if (json.message) setFitStatusMsg(json.message)
-      if (json.needsActivation) {
-        setFitNeedsActivation(true)
-        setFitActivationUrl(json.activationUrl || '')
-      } else if (json.live) {
-        setFitNeedsActivation(false)
-      }
-      if (json.data) {
-        setHealthData(json.data)
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('agentprv_google_fit_health', JSON.stringify(json.data))
+  const syncGoogleFit = useCallback(
+    async (day?: number, customToken?: string) => {
+      setFitLoading(true)
+      try {
+        const targetDay = day !== undefined ? day : selectedDate
+        const year = new Date().getFullYear()
+        const month = String(new Date().getMonth() + 1).padStart(2, '0')
+        const dateStr = `${year}-${month}-${String(targetDay).padStart(2, '0')}`
+
+        const savedToken =
+          customToken !== undefined
+            ? customToken
+            : typeof window !== 'undefined'
+              ? localStorage.getItem('gcal_oauth_token') || ''
+              : ''
+        const res = await fetch(`/api/fitness?date=${dateStr}`, {
+          headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
+        })
+        if (!res.ok) return
+        const json = await res.json()
+        if (json.message) setFitStatusMsg(json.message)
+        if (json.needsActivation) {
+          setFitNeedsActivation(true)
+          setFitActivationUrl(json.activationUrl || '')
+        } else if (json.live) {
+          setFitNeedsActivation(false)
         }
+        if (json.data) {
+          setHealthData(json.data)
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('agentprv_google_fit_health', JSON.stringify(json.data))
+          }
+        }
+      } catch {
+        // offline fallback
+      } finally {
+        setFitLoading(false)
       }
-    } catch {
-      // offline fallback
-    } finally {
-      setFitLoading(false)
-    }
-  }, [])
+    },
+    [selectedDate]
+  )
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -574,9 +582,9 @@ export default function Page() {
       setGoogleClientIdInput(savedClientId)
     }
     syncGoogleCalendar(selectedDate)
-    syncGoogleFit()
+    syncGoogleFit(selectedDate)
 
-    const fitTimer = setInterval(() => syncGoogleFit(), 5 * 60 * 1000)
+    const fitTimer = setInterval(() => syncGoogleFit(selectedDate), 5 * 60 * 1000)
     return () => clearInterval(fitTimer)
   }, [selectedDate, syncGoogleCalendar, syncGoogleFit])
 
@@ -685,7 +693,7 @@ export default function Page() {
       localStorage.setItem('gcal_client_id', googleClientIdInput.trim())
     }
     syncGoogleCalendar(selectedDate, icalInput.trim(), oauthTokenInput.trim())
-    syncGoogleFit(oauthTokenInput.trim())
+    syncGoogleFit(selectedDate, oauthTokenInput.trim())
     setShowGcalModal(false)
   }
 
@@ -731,7 +739,7 @@ export default function Page() {
         setOauthTokenInput(token)
         window.history.replaceState(null, '', window.location.pathname)
         syncGoogleCalendar(selectedDate, undefined, token)
-        syncGoogleFit(token)
+        syncGoogleFit(selectedDate, token)
       }
     }
   }, [selectedDate, syncGoogleCalendar, syncGoogleFit])
@@ -909,7 +917,7 @@ export default function Page() {
                       if (!healthData.live) {
                         setShowGcalModal(true)
                       } else {
-                        syncGoogleFit()
+                        syncGoogleFit(selectedDate)
                       }
                     }}
                     className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] text-[#9a9c9e] transition hover:border-white/[0.2] hover:text-white"

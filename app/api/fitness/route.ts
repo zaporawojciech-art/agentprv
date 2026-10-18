@@ -123,22 +123,46 @@ async function resolveGoogleAccessToken(request: NextRequest): Promise<string | 
     const token = authHeader.slice(7).trim()
     if (token) return token
   }
-  const saToken = await getServiceAccountAccessToken()
-  if (saToken) return saToken
-
+  if (process.env.GOOGLE_ACCESS_TOKEN) {
+    return process.env.GOOGLE_ACCESS_TOKEN.trim()
+  }
   const refreshedToken = await getRefreshTokenAccessToken()
   if (refreshedToken) return refreshedToken
+
+  const saToken = await getServiceAccountAccessToken()
+  if (saToken) return saToken
 
   return null
 }
 
 export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const queryDate = searchParams.get('date') // YYYY-MM-DD
+
   const now = new Date()
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+  let targetYear = now.getFullYear()
+  let targetMonth = now.getMonth()
+  let targetDay = now.getDate()
+
+  if (queryDate && /^\d{4}-\d{2}-\d{2}$/.test(queryDate)) {
+    const parts = queryDate.split('-').map(Number)
+    targetYear = parts[0]
+    targetMonth = parts[1] - 1
+    targetDay = parts[2]
+  }
+
+  const startOfDay = new Date(targetYear, targetMonth, targetDay, 0, 0, 0, 0)
+  const isToday =
+    targetYear === now.getFullYear() &&
+    targetMonth === now.getMonth() &&
+    targetDay === now.getDate()
+
+  const endOfDay = isToday
+    ? now
+    : new Date(targetYear, targetMonth, targetDay, 23, 59, 59, 999)
 
   const startTimeMillis = startOfDay.getTime()
-  const endTimeMillis = now.getTime()
+  const endTimeMillis = Math.max(endOfDay.getTime(), startTimeMillis + 1000)
 
   const accessToken = await resolveGoogleAccessToken(request)
 
@@ -176,15 +200,28 @@ export async function GET(request: NextRequest) {
         },
         body: JSON.stringify({
           aggregateBy: [
-            { dataTypeName: 'com.google.step_count.delta' },
-            { dataTypeName: 'com.google.calories.expended' },
-            { dataTypeName: 'com.google.active_minutes' },
-            { dataTypeName: 'com.google.heart_rate.bpm' },
-            { dataTypeName: 'com.google.distance.delta' },
+            {
+              dataTypeName: 'com.google.step_count.delta',
+              dataSourceId:
+                'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps',
+            },
+            {
+              dataTypeName: 'com.google.calories.expended',
+              dataSourceId:
+                'derived:com.google.calories.expended:com.google.android.gms:merge_calories_expended',
+            },
+            {
+              dataTypeName: 'com.google.active_minutes',
+              dataSourceId:
+                'derived:com.google.active_minutes:com.google.android.gms:merge_active_minutes',
+            },
+            {
+              dataTypeName: 'com.google.heart_rate.bpm',
+            },
           ],
           bucketByTime: { durationMillis: 86400000 },
           startTimeMillis,
-          endTimeMillis: Math.max(endTimeMillis, startTimeMillis + 1000),
+          endTimeMillis,
         }),
         cache: 'no-store',
       }
@@ -305,23 +342,24 @@ export async function GET(request: NextRequest) {
     const calculatedHeartRate =
       heartRateCount > 0 ? Math.round(heartRateSum / heartRateCount) : DEFAULT_FIT_DATA.heartRate
 
+    const calculatedDistanceKm =
+      totalDistanceMeters > 0
+        ? Number((totalDistanceMeters / 1000).toFixed(1))
+        : Number(((totalSteps * 0.75) / 1000).toFixed(1))
+
     const parsedData: GoogleFitDataResponse = {
-      steps: totalSteps > 0 ? totalSteps : DEFAULT_FIT_DATA.steps,
+      steps: totalSteps,
       stepsGoal: DEFAULT_FIT_DATA.stepsGoal,
-      calories: totalCalories > 0 ? Math.round(totalCalories) : DEFAULT_FIT_DATA.calories,
+      calories: totalCalories > 0 ? Math.round(totalCalories) : 0,
       caloriesGoal: DEFAULT_FIT_DATA.caloriesGoal,
-      activeMinutes:
-        totalActiveMinutes > 0 ? totalActiveMinutes : DEFAULT_FIT_DATA.activeMinutes,
+      activeMinutes: totalActiveMinutes,
       activeMinutesGoal: DEFAULT_FIT_DATA.activeMinutesGoal,
       heartRate: calculatedHeartRate,
       heartRateResting: DEFAULT_FIT_DATA.heartRateResting,
-      distanceKm:
-        totalDistanceMeters > 0
-          ? Number((totalDistanceMeters / 1000).toFixed(1))
-          : DEFAULT_FIT_DATA.distanceKm,
+      distanceKm: calculatedDistanceKm,
       sleepDuration: sleepDurationStr,
       sleepScore: DEFAULT_FIT_DATA.sleepScore,
-      source: 'Google Fit',
+      source: 'Google Fit Live',
       account: TARGET_FITNESS_EMAIL,
       lastSyncTime: currentTimeStr,
       live: true,
