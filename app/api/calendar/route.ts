@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 
 const TARGET_CALENDAR_EMAIL = 'zaporawojciech@gmail.com'
@@ -12,13 +13,115 @@ interface ParsedCalendarEvent {
   dateStr: string // YYYY-MM-DD
 }
 
+/**
+ * Generuje token dostępowy Google z Konta Usługi (Service Account) z Google Cloud Console
+ * bez potrzeby używania zewnętrznych bibliotek (używa wbudowanego modułu Node `crypto`).
+ */
+async function getServiceAccountAccessToken(): Promise<string | null> {
+  let clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY
+
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    try {
+      const parsed = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON)
+      clientEmail = parsed.client_email
+      privateKey = parsed.private_key
+    } catch {
+      // Ignoruj błąd parsowania
+    }
+  }
+
+  if (!clientEmail || !privateKey) return null
+  const formattedKey = privateKey.replace(/\\n/g, '\n')
+
+  try {
+    const now = Math.floor(Date.now() / 1000)
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url')
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: clientEmail,
+        scope: 'https://www.googleapis.com/auth/calendar',
+        aud: 'https://oauth2.googleapis.com/token',
+        exp: now + 3600,
+        iat: now,
+      })
+    ).toString('base64url')
+
+    const sign = crypto.createSign('RSA-SHA256')
+    sign.update(`${header}.${payload}`)
+    sign.end()
+    const signature = sign.sign(formattedKey, 'base64url')
+    const assertion = `${header}.${payload}.${signature}`
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+      cache: 'no-store',
+    })
+
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.access_token || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Wymienia stały GOOGLE_REFRESH_TOKEN z Google Cloud Console OAuth 2.0 na świeży access_token.
+ */
+async function getRefreshTokenAccessToken(): Promise<string | null> {
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
+
+  if (!clientId || !clientSecret || !refreshToken) return null
+
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.access_token || null
+  } catch {
+    return null
+  }
+}
+
+async function resolveGoogleAccessToken(request: NextRequest): Promise<string | null> {
+  const authHeader = request.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim()
+    if (token) return token
+  }
+  const saToken = await getServiceAccountAccessToken()
+  if (saToken) return saToken
+
+  const refreshedToken = await getRefreshTokenAccessToken()
+  if (refreshedToken) return refreshedToken
+
+  return null
+}
+
 function unfoldIcsLines(icsText: string): string[] {
   return icsText.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '').split(/\r?\n/)
 }
 
 function parseIcsDate(rawVal: string): Date | null {
   const val = rawVal.trim()
-  // Format: YYYYMMDDTHHMMSSZ or YYYYMMDDTHHMMSS or YYYYMMDD
   const match = val.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/)
   if (!match) return null
   const [, y, m, d, hh = '09', mm = '00', ss = '00', isUtc] = match
@@ -125,10 +228,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const dateParam = searchParams.get('date') // YYYY-MM-DD
   const customIcalUrl = searchParams.get('icalUrl')
-  const authHeader = request.headers.get('authorization')
-  const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
+  const accessToken = await resolveGoogleAccessToken(request)
 
-  // 1. Try Google Calendar REST API v3 if OAuth access token or API key is available
+  // 1. Google Calendar REST API v3 (Service Account, OAuth Refresh Token, Bearer Token, lub API Key)
   const apiKey = process.env.GOOGLE_CALENDAR_API_KEY
   if (accessToken || apiKey) {
     try {
@@ -218,18 +320,18 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
           connected: true,
-          source: 'google-api',
+          source: 'google-cloud-api',
           email: TARGET_CALENDAR_EMAIL,
           events: dateParam ? mapped.filter((e) => e.dateStr === dateParam) : mapped,
           allMonthEvents: mapped,
         })
       }
     } catch {
-      // Fallback to iCal below
+      // Fallback do iCal poniżej
     }
   }
 
-  // 2. Try iCal (.ics) feed (custom URL from settings, env GOOGLE_CALENDAR_ICAL_URL, or public feed for zaporawojciech@gmail.com)
+  // 2. Kanał iCal (.ics)
   const icalUrl =
     customIcalUrl ||
     process.env.GOOGLE_CALENDAR_ICAL_URL ||
@@ -251,7 +353,7 @@ export async function GET(request: NextRequest) {
       }
     }
   } catch {
-    // Ignore fetch error
+    // Ignore
   }
 
   return NextResponse.json({
@@ -260,24 +362,26 @@ export async function GET(request: NextRequest) {
     events: [],
     allMonthEvents: [],
     message:
-      'Kalendarz zaporawojciech@gmail.com jest prywatny. Połącz konto Google (OAuth) lub wklej Tajny adres w formacie iCal z ustawień Kalendarza Google.',
+      'Skonfiguruj Google Cloud Console (Service Account lub OAuth Client ID) albo wklej adres iCal.',
   })
 }
 
 export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
+  const accessToken = await resolveGoogleAccessToken(request)
 
   if (!accessToken) {
     return NextResponse.json(
-      { error: 'Wymagana autoryzacja OAuth do zapisu w Kalendarzu Google' },
+      {
+        error:
+          'Brak autoryzacji Google Cloud (skonfiguruj Service Account w .env.local lub zaloguj się przez OAuth 2.0)',
+      },
       { status: 401 }
     )
   }
 
   try {
     const body = await request.json()
-    const { title, dateStr, time } = body
+    const { title, dateStr, time, description } = body
     const startDateTime = new Date(`${dateStr}T${time || '12:00'}:00`)
     const endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000)
 
@@ -292,8 +396,9 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({
           summary: title,
-          start: { dateTime: startDateTime.toISOString() },
-          end: { dateTime: endDateTime.toISOString() },
+          description: description || 'Dodane przez Agenta AI (dom)',
+          start: { dateTime: startDateTime.toISOString(), timeZone: 'Europe/Warsaw' },
+          end: { dateTime: endDateTime.toISOString(), timeZone: 'Europe/Warsaw' },
         }),
       }
     )

@@ -423,10 +423,10 @@ export default function Page() {
     setNewTask('')
     setShowComposer(false)
 
-    // Jeśli mamy token OAuth, zapisz wydarzenie również bezpośrednio w Kalendarzu Google zaporawojciech@gmail.com
+    // Zapisz wydarzenie w Kalendarzu Google zaporawojciech@gmail.com (przez Service Account, Refresh Token lub OAuth)
     const savedToken =
       typeof window !== 'undefined' ? localStorage.getItem('gcal_oauth_token') : null
-    if (savedToken) {
+    if (gcalConnected || savedToken) {
       const year = new Date().getFullYear()
       const month = String(new Date().getMonth() + 1).padStart(2, '0')
       const dateStr = `${year}-${month}-${String(selectedDate).padStart(2, '0')}`
@@ -434,7 +434,7 @@ export default function Page() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${savedToken}`,
+          ...(savedToken ? { Authorization: `Bearer ${savedToken}` } : {}),
         },
         body: JSON.stringify({ title, dateStr, time }),
       }).catch(() => {})
