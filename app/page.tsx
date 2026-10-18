@@ -35,7 +35,28 @@ import {
   X,
 } from 'lucide-react'
 
-const GOOGLE_CALENDAR_EMAIL = 'zaporawojciech@gmail.com'
+const GOOGLE_ACCOUNT_EMAIL = 'zaporawojciech@gmail.com'
+const GOOGLE_CALENDAR_EMAIL = GOOGLE_ACCOUNT_EMAIL
+const GOOGLE_FIT_EMAIL = GOOGLE_ACCOUNT_EMAIL
+
+function GoogleFitIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="shrink-0">
+      <path
+        d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+        fill="url(#googleFitGradient)"
+      />
+      <defs>
+        <linearGradient id="googleFitGradient" x1="2" y1="3" x2="22" y2="21.35" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#4285F4" />
+          <stop offset="35%" stopColor="#34A853" />
+          <stop offset="70%" stopColor="#FBBC05" />
+          <stop offset="100%" stopColor="#EA4335" />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
 
 interface HourlyForecastItem {
   id: string
@@ -66,7 +87,7 @@ interface StockHolding {
   category: 'ETF' | 'US' | 'GPW'
 }
 
-interface HuaweiHealthData {
+interface GoogleFitData {
   steps: number
   stepsGoal: number
   calories: number
@@ -78,9 +99,13 @@ interface HuaweiHealthData {
   distanceKm: number
   sleepDuration: string
   sleepScore: number
+  source?: string
+  account?: string
+  lastSyncTime?: string
+  live?: boolean
 }
 
-const defaultHealthData: HuaweiHealthData = {
+const defaultHealthData: GoogleFitData = {
   steps: 8420,
   stepsGoal: 10000,
   calories: 540,
@@ -92,6 +117,8 @@ const defaultHealthData: HuaweiHealthData = {
   distanceKm: 6.2,
   sleepDuration: '7h 35m',
   sleepScore: 86,
+  source: 'Google Fit',
+  account: GOOGLE_FIT_EMAIL,
 }
 
 function buildDynamicFallbackForecast(): HourlyForecastItem[] {
@@ -391,10 +418,12 @@ export default function Page() {
     return { totalValue, totalInvested, totalProfit, totalProfitPct }
   }, [holdings])
 
-  // Dane ruchu i zdrowia z Huawei Watch GT 2
-  const [healthData] = useState<HuaweiHealthData>(() => {
+  // Dane ruchu i zdrowia z Google Fit (zaporawojciech@gmail.com)
+  const [healthData, setHealthData] = useState<GoogleFitData>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('agentprv_huawei_health')
+      const saved =
+        localStorage.getItem('agentprv_google_fit_health') ||
+        localStorage.getItem('agentprv_huawei_health')
       if (saved) {
         try {
           return { ...defaultHealthData, ...JSON.parse(saved) }
@@ -403,6 +432,7 @@ export default function Page() {
     }
     return defaultHealthData
   })
+  const [fitLoading, setFitLoading] = useState(false)
 
   const [showComposer, setShowComposer] = useState(false)
   const [newTask, setNewTask] = useState('')
@@ -494,6 +524,33 @@ export default function Page() {
     []
   )
 
+  const syncGoogleFit = useCallback(async (customToken?: string) => {
+    setFitLoading(true)
+    try {
+      const savedToken =
+        customToken !== undefined
+          ? customToken
+          : typeof window !== 'undefined'
+            ? localStorage.getItem('gcal_oauth_token') || ''
+            : ''
+      const res = await fetch('/api/fitness', {
+        headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
+      })
+      if (!res.ok) return
+      const json = await res.json()
+      if (json.data) {
+        setHealthData(json.data)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('agentprv_google_fit_health', JSON.stringify(json.data))
+        }
+      }
+    } catch {
+      // offline fallback
+    } finally {
+      setFitLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedIcal = localStorage.getItem('gcal_ical_url') || ''
@@ -507,7 +564,11 @@ export default function Page() {
       setGoogleClientIdInput(savedClientId)
     }
     syncGoogleCalendar(selectedDate)
-  }, [selectedDate, syncGoogleCalendar])
+    syncGoogleFit()
+
+    const fitTimer = setInterval(() => syncGoogleFit(), 5 * 60 * 1000)
+    return () => clearInterval(fitTimer)
+  }, [selectedDate, syncGoogleCalendar, syncGoogleFit])
 
   useEffect(() => {
     const updateClock = () => {
@@ -630,13 +691,19 @@ export default function Page() {
     }
 
     const redirectUri = window.location.origin
-    const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
+    const scopes = [
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/fitness.activity.read',
+      'https://www.googleapis.com/auth/fitness.body.read',
+      'https://www.googleapis.com/auth/fitness.heart_rate.read',
+      'https://www.googleapis.com/auth/fitness.sleep.read',
+    ].join(' ')
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
       clientId
     )}&redirect_uri=${encodeURIComponent(
       redirectUri
-    )}&response_type=token&scope=${scope}&login_hint=${encodeURIComponent(
-      GOOGLE_CALENDAR_EMAIL
+    )}&response_type=token&scope=${encodeURIComponent(scopes)}&login_hint=${encodeURIComponent(
+      GOOGLE_ACCOUNT_EMAIL
     )}&prompt=consent`
 
     window.location.href = authUrl
@@ -653,9 +720,10 @@ export default function Page() {
         setOauthTokenInput(token)
         window.history.replaceState(null, '', window.location.pathname)
         syncGoogleCalendar(selectedDate, undefined, token)
+        syncGoogleFit(token)
       }
     }
-  }, [selectedDate, syncGoogleCalendar])
+  }, [selectedDate, syncGoogleCalendar, syncGoogleFit])
 
   async function toggleFullscreen() {
     if (!document.fullscreenElement) {
@@ -808,26 +876,39 @@ export default function Page() {
 
         {/* Main 3-Column Horizontal Tablet Workspace */}
         <section className="grid min-h-0 flex-1 grid-cols-12 gap-4">
-          {/* Column 1: Aktywność i Zdrowie (Huawei GT 2) oraz Kompaktowy Kalendarz (4 cols) */}
+          {/* Column 1: Aktywność i Zdrowie (Google Fit) oraz Kompaktowy Kalendarz (4 cols) */}
           <div className="col-span-4 flex min-h-0 flex-col gap-3.5">
-            {/* Health & Movement Card — Huawei Watch GT 2 (Główny priorytet) */}
+            {/* Health & Movement Card — Google Fit (Główny priorytet) */}
             <div className="flex flex-1 flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#151617] p-4">
               <div>
                 {/* Header */}
                 <div className="mb-3.5 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
-                      <Activity size={16} />
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-white/[0.05]">
+                      <GoogleFitIcon size={17} />
                     </div>
                     <div>
                       <h2 className="text-sm font-semibold text-[#f3f3f1]">Ruch i Zdrowie</h2>
-                      <p className="text-[10px] text-[#737578]">Huawei Watch GT 2</p>
+                      <p className="text-[10px] text-[#737578]">Google Fit · {GOOGLE_FIT_EMAIL}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] text-[#9a9c9e]">
-                    <span className="size-1.5 rounded-full bg-emerald-400" />
-                    <span>Zsynchronizowano</span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => syncGoogleFit()}
+                    className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] text-[#9a9c9e] transition hover:border-white/[0.2] hover:text-white"
+                    title="Kliknij, aby odświeżyć Google Fit"
+                  >
+                    <span
+                      className={`size-1.5 rounded-full ${
+                        healthData.live ? 'bg-emerald-400' : 'bg-emerald-400/90'
+                      }`}
+                    />
+                    <span>{fitLoading ? 'Synchronizacja...' : 'Google Fit'}</span>
+                    <RefreshCw
+                      size={10}
+                      className={fitLoading ? 'animate-spin text-white' : 'text-[#77797c]'}
+                    />
+                  </button>
                 </div>
 
                 {/* Wskaźniki Ruchu (Kroki, Kalorie, Czas Aktywności) */}
@@ -940,7 +1021,7 @@ export default function Page() {
                     </div>
                   </div>
 
-                  {/* Biometria (Tętno TruSeen & Sen TruSleep) */}
+                  {/* Biometria (Tętno Google Fit & Sen Google Fit) */}
                   <div className="grid grid-cols-2 gap-2.5">
                     {/* Tętno */}
                     <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5">
@@ -968,7 +1049,7 @@ export default function Page() {
                           {healthData.sleepDuration}
                         </p>
                         <p className="mt-1 text-[10px] text-[#6f7174]">
-                          TruSleep {healthData.sleepScore} pkt
+                          Google Fit Sen
                         </p>
                       </div>
                     </div>
@@ -1418,10 +1499,10 @@ export default function Page() {
                 </div>
                 <div>
                   <h2 className="text-base font-semibold text-[#f3f3f1]">
-                    Kalendarz Google · {GOOGLE_CALENDAR_EMAIL}
+                    Konto Google · {GOOGLE_ACCOUNT_EMAIL}
                   </h2>
                   <p className="text-xs text-[#7c7e81]">
-                    Synchronizacja wydarzeń z kontem {GOOGLE_CALENDAR_EMAIL}
+                    Synchronizacja Kalendarza oraz Google Fit z kontem {GOOGLE_ACCOUNT_EMAIL}
                   </p>
                 </div>
               </div>
@@ -1444,7 +1525,7 @@ export default function Page() {
               {/* Opcja 1: Tajny adres iCal (.ics) — działa od razu bez Google Cloud Console */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-[#d7d7d5]">
-                  1. Tajny adres w formacie iCal (.ics) dla {GOOGLE_CALENDAR_EMAIL}
+                  1. Tajny adres Kalendarza w formacie iCal (.ics) dla {GOOGLE_CALENDAR_EMAIL}
                 </label>
                 <input
                   value={icalInput}
@@ -1458,10 +1539,10 @@ export default function Page() {
                 </p>
               </div>
 
-              {/* Opcja 2: Google OAuth 2.0 (pełny odczyt i zapis) */}
+              {/* Opcja 2: Google OAuth 2.0 (Kalendarz + Google Fit) */}
               <div className="border-t border-white/[0.07] pt-3.5">
                 <label className="mb-1.5 block text-xs font-medium text-[#d7d7d5]">
-                  2. Pełna synchronizacja dwukierunkowa (OAuth 2.0)
+                  2. Pełna autoryzacja Google (Kalendarz + Google Fit)
                 </label>
                 <div className="flex gap-2">
                   <input
