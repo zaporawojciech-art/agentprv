@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Activity,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -14,11 +15,15 @@ import {
   CloudSnow,
   CloudSun,
   DollarSign,
+  Flame,
+  Footprints,
+  Heart,
   Link2,
   ListTodo,
   MapPin,
   Maximize2,
   Minimize2,
+  Moon,
   MoreHorizontal,
   Plus,
   RefreshCw,
@@ -59,6 +64,34 @@ interface StockHolding {
   invested: number
   currentPrice: number
   category: 'ETF' | 'US' | 'GPW'
+}
+
+interface HuaweiHealthData {
+  steps: number
+  stepsGoal: number
+  calories: number
+  caloriesGoal: number
+  activeMinutes: number
+  activeMinutesGoal: number
+  heartRate: number
+  heartRateResting: number
+  distanceKm: number
+  sleepDuration: string
+  sleepScore: number
+}
+
+const defaultHealthData: HuaweiHealthData = {
+  steps: 8420,
+  stepsGoal: 10000,
+  calories: 540,
+  caloriesGoal: 600,
+  activeMinutes: 45,
+  activeMinutesGoal: 30,
+  heartRate: 64,
+  heartRateResting: 58,
+  distanceKm: 6.2,
+  sleepDuration: '7h 35m',
+  sleepScore: 86,
 }
 
 function buildDynamicFallbackForecast(): HourlyForecastItem[] {
@@ -358,6 +391,19 @@ export default function Page() {
     return { totalValue, totalInvested, totalProfit, totalProfitPct }
   }, [holdings])
 
+  // Dane ruchu i zdrowia z Huawei Watch GT 2
+  const [healthData] = useState<HuaweiHealthData>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('agentprv_huawei_health')
+      if (saved) {
+        try {
+          return { ...defaultHealthData, ...JSON.parse(saved) }
+        } catch {}
+      }
+    }
+    return defaultHealthData
+  })
+
   const [showComposer, setShowComposer] = useState(false)
   const [newTask, setNewTask] = useState('')
   const [newTaskTime, setNewTaskTime] = useState('20:00')
@@ -382,12 +428,6 @@ export default function Page() {
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
   )
   const [gcalStatusMsg, setGcalStatusMsg] = useState('')
-
-  const completed = useMemo(() => events.filter((event) => event.active).length, [events])
-  const progressPercent = useMemo(
-    () => (events.length > 0 ? Math.round((completed / events.length) * 100) : 0),
-    [completed, events.length]
-  )
 
   const datesWithGoogleEvents = useMemo(() => {
     const set = new Set<number>()
@@ -768,148 +808,260 @@ export default function Page() {
 
         {/* Main 3-Column Horizontal Tablet Workspace */}
         <section className="grid min-h-0 flex-1 grid-cols-12 gap-4">
-          {/* Column 1: Compact Calendar & Day Summary (4 cols) */}
-          <div className="col-span-4 flex min-h-0 flex-col gap-4">
-            {/* Compact Calendar Card */}
+          {/* Column 1: Aktywność i Zdrowie (Huawei GT 2) oraz Kompaktowy Kalendarz (4 cols) */}
+          <div className="col-span-4 flex min-h-0 flex-col gap-3.5">
+            {/* Health & Movement Card — Huawei Watch GT 2 (Główny priorytet) */}
             <div className="flex flex-1 flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#151617] p-4">
               <div>
-                <div className="mb-3 flex items-center justify-between rounded-xl border border-white/[0.06] bg-[#1b1c1d] px-2 py-1.5">
+                {/* Header */}
+                <div className="mb-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                      <Activity size={16} />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-semibold text-[#f3f3f1]">Ruch i Zdrowie</h2>
+                      <p className="text-[10px] text-[#737578]">Huawei Watch GT 2</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] text-[#9a9c9e]">
+                    <span className="size-1.5 rounded-full bg-emerald-400" />
+                    <span>Zsynchronizowano</span>
+                  </div>
+                </div>
+
+                {/* Wskaźniki Ruchu (Kroki, Kalorie, Czas Aktywności) */}
+                <div className="flex flex-col gap-2.5">
+                  {/* Kroki */}
+                  <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 font-medium text-white">
+                        <Footprints size={14} className="text-sky-400" />
+                        <span>Kroki</span>
+                      </div>
+                      <div className="flex items-baseline gap-1 text-[11px] tabular-nums text-[#8e9093]">
+                        <span className="font-semibold text-white">
+                          {healthData.steps.toLocaleString('pl-PL')}
+                        </span>
+                        <span>/ {healthData.stepsGoal.toLocaleString('pl-PL')}</span>
+                        <span className="font-semibold text-sky-400">
+                          ({Math.round((healthData.steps / healthData.stepsGoal) * 100)}%)
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
+                      <div
+                        className="h-full rounded-full bg-sky-400 transition-all duration-500"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round((healthData.steps / healthData.stepsGoal) * 100)
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="mt-1.5 flex justify-between text-[10px] text-[#6f7174]">
+                      <span>Dystans: {healthData.distanceKm} km</span>
+                      <span>
+                        Pozostało:{' '}
+                        {(healthData.stepsGoal - healthData.steps).toLocaleString('pl-PL')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Kalorie & Czas Ruchu */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* Spalone kalorie */}
+                    <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-white">
+                          <Flame size={14} className="text-amber-400" />
+                          <span>Kalorie</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-amber-400">
+                          {Math.round((healthData.calories / healthData.caloriesGoal) * 100)}%
+                        </span>
+                      </div>
+                      <div className="mt-1.5">
+                        <p className="text-lg font-bold tabular-nums leading-none text-white">
+                          {healthData.calories}{' '}
+                          <span className="text-xs font-normal text-[#8e9093]">kcal</span>
+                        </p>
+                        <p className="mt-1 text-[10px] text-[#6f7174]">
+                          cel: {healthData.caloriesGoal} kcal
+                        </p>
+                      </div>
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
+                        <div
+                          className="h-full rounded-full bg-amber-400 transition-all duration-500"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              Math.round((healthData.calories / healthData.caloriesGoal) * 100)
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Aktywność / Trening */}
+                    <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-white">
+                          <Activity size={14} className="text-emerald-400" />
+                          <span>Aktywność</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-400">
+                          {Math.round((healthData.activeMinutes / healthData.activeMinutesGoal) * 100)}%
+                        </span>
+                      </div>
+                      <div className="mt-1.5">
+                        <p className="text-lg font-bold tabular-nums leading-none text-white">
+                          {healthData.activeMinutes}{' '}
+                          <span className="text-xs font-normal text-[#8e9093]">min</span>
+                        </p>
+                        <p className="mt-1 text-[10px] text-[#6f7174]">
+                          cel: {healthData.activeMinutesGoal} min
+                        </p>
+                      </div>
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
+                        <div
+                          className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              Math.round(
+                                (healthData.activeMinutes / healthData.activeMinutesGoal) * 100
+                              )
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Biometria (Tętno TruSeen & Sen TruSleep) */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* Tętno */}
+                    <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400">
+                        <Heart size={15} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold tabular-nums leading-none text-white">
+                          {healthData.heartRate}{' '}
+                          <span className="text-[10px] font-normal text-[#8e9093]">bpm</span>
+                        </p>
+                        <p className="mt-1 text-[10px] text-[#6f7174]">
+                          Spoczynkowe {healthData.heartRateResting}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Sen */}
+                    <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+                        <Moon size={15} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold tabular-nums leading-none text-white">
+                          {healthData.sleepDuration}
+                        </p>
+                        <p className="mt-1 text-[10px] text-[#6f7174]">
+                          TruSleep {healthData.sleepScore} pkt
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Compact Month Calendar Card — nowoczesna, zwięzła forma */}
+            <div className="shrink-0 rounded-2xl border border-white/[0.08] bg-[#151617] p-3.5">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#f3f3f1]">
+                  <CalendarDays size={13} className="text-[#8e9092]" />
+                  <span>Październik 2026</span>
+                </div>
+                <div className="flex items-center gap-1">
                   <button
+                    type="button"
                     onClick={() => setSelectedDate((d) => Math.max(1, d - 1))}
-                    className="flex size-8 items-center justify-center rounded-lg text-[#85878a] transition hover:bg-white/[0.06] hover:text-white active:scale-95"
+                    className="flex size-6 items-center justify-center rounded-md text-[#85878a] transition hover:bg-white/[0.06] hover:text-white"
                     aria-label="Poprzedni dzień"
                   >
-                    <ChevronLeft size={16} />
+                    <ChevronLeft size={14} />
                   </button>
-                  <div className="flex items-center gap-2 text-xs font-medium text-[#e2e2e0]">
-                    <CalendarDays size={14} className="text-[#85878a]" />
-                    <span>Październik 2026</span>
-                  </div>
                   <button
+                    type="button"
+                    onClick={() => setSelectedDate(18)}
+                    className="rounded-md px-2 py-0.5 text-[10px] font-medium text-[#8e9092] transition hover:bg-white/[0.06] hover:text-white"
+                  >
+                    Dziś
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setSelectedDate((d) => Math.min(31, d + 1))}
-                    className="flex size-8 items-center justify-center rounded-lg text-[#85878a] transition hover:bg-white/[0.06] hover:text-white active:scale-95"
+                    className="flex size-6 items-center justify-center rounded-md text-[#85878a] transition hover:bg-white/[0.06] hover:text-white"
                     aria-label="Następny dzień"
                   >
-                    <ChevronRight size={16} />
+                    <ChevronRight size={14} />
                   </button>
-                </div>
-
-                <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-medium uppercase tracking-wider text-[#66686b]">
-                  {weekDays.map((item) => (
-                    <span key={item.date} className="py-1">
-                      {item.day}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-7 gap-1">
-                  {calendarCells.map((date, index) => {
-                    const hasEvent = date ? datesWithGoogleEvents.has(date) || date === 18 : false
-                    return (
-                      <button
-                        key={index}
-                        onClick={() => date && setSelectedDate(date)}
-                        disabled={!date}
-                        className={`relative flex h-8 items-center justify-center rounded-lg text-xs tabular-nums transition xl:h-9 ${
-                          date === selectedDate
-                            ? 'bg-[#eeeeec] font-semibold text-[#171819] shadow-sm'
-                            : date === 18
-                              ? 'bg-white/[0.05] text-[#f2f2f0]'
-                              : 'text-[#888a8c] hover:bg-white/[0.06] hover:text-white'
-                        } ${
-                          hasEvent && date !== selectedDate
-                            ? 'after:absolute after:bottom-1 after:size-1 after:rounded-full after:bg-[#999]'
-                            : ''
-                        }`}
-                      >
-                        {date}
-                      </button>
-                    )
-                  })}
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center justify-between border-t border-white/[0.07] pt-3">
-                <button
-                  className="text-xs font-medium text-[#8e9092] transition hover:text-white"
-                  onClick={() => setSelectedDate(18)}
-                >
-                  Wróć do dziś
-                </button>
+              {/* Dni tygodnia */}
+              <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[9px] font-medium uppercase tracking-wider text-[#66686b]">
+                {['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'].map((d) => (
+                  <span key={d}>{d}</span>
+                ))}
+              </div>
+
+              {/* Siatka dni */}
+              <div className="grid grid-cols-7 gap-0.5">
+                {calendarCells.map((date, index) => {
+                  const hasEvent = date ? datesWithGoogleEvents.has(date) || date === 18 : false
+                  const isSelected = date === selectedDate
+                  return (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => date && setSelectedDate(date)}
+                      disabled={!date}
+                      className={`relative flex h-6 items-center justify-center rounded-md text-[11px] tabular-nums transition ${
+                        isSelected
+                          ? 'bg-[#eeeeec] font-bold text-[#171819] shadow-sm'
+                          : date === 18
+                          ? 'bg-white/[0.08] font-semibold text-white'
+                          : 'text-[#888a8c] hover:bg-white/[0.06] hover:text-white'
+                      } ${
+                        hasEvent && !isSelected
+                          ? 'after:absolute after:bottom-0.5 after:size-1 after:rounded-full after:bg-emerald-400'
+                          : ''
+                      }`}
+                    >
+                      {date}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Status Google Calendar */}
+              <div className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-1.5 text-[10px] text-[#737578]">
+                <span>Wybrany dzień: {selectedDate} paź</span>
                 <button
                   type="button"
                   onClick={() => setShowGcalModal(true)}
-                  className="flex items-center gap-1.5 text-[11px] text-[#8e9092] transition hover:text-white"
-                  title="Konfiguracja synchronizacji Kalendarza Google"
+                  className="flex items-center gap-1 transition hover:text-white"
                 >
                   <span
                     className={`size-1.5 rounded-full ${
                       gcalConnected ? 'bg-emerald-400' : 'bg-[#888]'
                     }`}
                   />
-                  <span className="truncate max-w-[165px]">{GOOGLE_CALENDAR_EMAIL}</span>
+                  <span className="truncate max-w-[140px]">{GOOGLE_CALENDAR_EMAIL}</span>
                 </button>
-              </div>
-            </div>
-
-            {/* Day Stats Summary Card */}
-            <div className="shrink-0 rounded-2xl border border-white/[0.08] bg-[#151617] p-4">
-              <div className="mb-3 flex items-start justify-between">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                    Twój dzień
-                  </p>
-                  <h2 className="mt-0.5 text-lg font-semibold tracking-tight text-[#f3f3f1]">
-                    {selectedDate} października
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setShowGcalModal(true)}
-                  className="rounded-lg p-1.5 text-[#77797c] transition hover:bg-white/[0.06] hover:text-white"
-                  aria-label="Ustawienia Kalendarza Google"
-                >
-                  <MoreHorizontal size={17} />
-                </button>
-              </div>
-
-              <div className="mb-3.5 flex items-center gap-3">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#292a2b]">
-                  <div
-                    className="h-full rounded-full bg-[#d8d8d6] transition-all duration-300"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-                <span className="text-xs tabular-nums text-[#737578]">
-                  {completed}/{events.length} gotowe
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-xl bg-[#1d1e1f] py-2.5">
-                  <p className="text-base font-semibold text-[#f3f3f1]">{events.length}</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[#6f7174]">
-                    wydarzeń
-                  </p>
-                </div>
-                <div className="rounded-xl bg-[#1d1e1f] py-2.5">
-                  <p className="text-base font-semibold text-[#f3f3f1]">2h</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[#6f7174]">
-                    skupienia
-                  </p>
-                </div>
-                <div className="rounded-xl bg-[#1d1e1f] py-2.5">
-                  <p
-                    className={`text-base font-semibold tabular-nums ${
-                      portfolioSummary.totalProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {portfolioSummary.totalProfit >= 0 ? '+' : ''}
-                    {portfolioSummary.totalProfitPct.toFixed(1)}%
-                  </p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[#6f7174]">
-                    portfel
-                  </p>
-                </div>
               </div>
             </div>
           </div>
