@@ -7,15 +7,23 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
+  Cloud,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
   Command,
   Download,
   ListTodo,
+  MapPin,
   Maximize2,
   Mic,
   Minimize2,
   MoreHorizontal,
   Plus,
   Sparkles,
+  Sun,
   SunMedium,
   X,
 } from 'lucide-react'
@@ -23,6 +31,50 @@ import {
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
+interface HourlyForecastItem {
+  hour: string
+  temp: number
+  code: number
+}
+
+const fallbackHourlyForecast: HourlyForecastItem[] = [
+  { hour: '07:00', temp: 7, code: 2 },
+  { hour: '08:00', temp: 9, code: 2 },
+  { hour: '09:00', temp: 11, code: 1 },
+  { hour: '10:00', temp: 13, code: 1 },
+  { hour: '11:00', temp: 14, code: 0 },
+  { hour: '12:00', temp: 15, code: 0 },
+  { hour: '13:00', temp: 16, code: 1 },
+  { hour: '14:00', temp: 16, code: 1 },
+  { hour: '15:00', temp: 15, code: 2 },
+  { hour: '16:00', temp: 14, code: 2 },
+  { hour: '17:00', temp: 12, code: 3 },
+  { hour: '18:00', temp: 11, code: 2 },
+]
+
+function getWeatherLabel(code: number): string {
+  if (code === 0) return 'Bezchmurnie'
+  if (code === 1 || code === 2) return 'Pogodnie'
+  if (code === 3) return 'Zachmurzenie'
+  if (code === 45 || code === 48) return 'Mgła'
+  if (code >= 51 && code <= 67) return 'Opady deszczu'
+  if (code >= 71 && code <= 77) return 'Opady śniegu'
+  if (code >= 80 && code <= 82) return 'Przelotny deszcz'
+  if (code >= 95) return 'Burza'
+  return 'Umiarkowanie'
+}
+
+function WeatherIcon({ code, size = 14 }: { code: number; size?: number }) {
+  if (code === 0) return <Sun size={size} className="text-[#e5c07b]" />
+  if (code === 1 || code === 2) return <CloudSun size={size} className="text-[#d8d8d6]" />
+  if (code === 45 || code === 48) return <CloudFog size={size} className="text-[#8e9092]" />
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82))
+    return <CloudRain size={size} className="text-[#8ab4f8]" />
+  if (code >= 71 && code <= 86) return <CloudSnow size={size} className="text-[#cbe1ff]" />
+  if (code >= 95) return <CloudLightning size={size} className="text-[#e5c07b]" />
+  return <Cloud size={size} className="text-[#9a9c9e]" />
 }
 
 const weekDays = [
@@ -68,7 +120,13 @@ export default function Page() {
   const [isListening, setIsListening] = useState(false)
   const [assistantPrompt, setAssistantPrompt] = useState('„Zaplanuj mi spokojne popołudnie”')
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [currentTime, setCurrentTime] = useState('21:00')
+  const [currentTime, setCurrentTime] = useState('21:30')
+  const [currentWeather, setCurrentWeather] = useState<{ temp: number; code: number }>({
+    temp: 11,
+    code: 2,
+  })
+  const [hourlyForecast, setHourlyForecast] =
+    useState<HourlyForecastItem[]>(fallbackHourlyForecast)
 
   const completed = useMemo(() => events.filter((event) => event.active).length, [events])
   const progressPercent = useMemo(
@@ -89,6 +147,67 @@ export default function Page() {
     updateClock()
     const timer = setInterval(updateClock, 15000)
 
+    // Pobierz aktualną pogodę dla Mińska Mazowieckiego (52.1794° N, 21.5725° E)
+    // oraz 12 kolejnych godzin dziennych (z pominięciem godzin nocnych 22:00 - 06:00)
+    const fetchMinskWeather = async () => {
+      try {
+        const res = await fetch(
+          'https://api.open-meteo.com/v1/forecast?latitude=52.1794&longitude=21.5725&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&timezone=Europe%2FWarsaw&forecast_days=3'
+        )
+        if (!res.ok) return
+        const data = await res.json()
+
+        if (data?.current) {
+          setCurrentWeather({
+            temp: Math.round(data.current.temperature_2m),
+            code: data.current.weather_code ?? 1,
+          })
+        }
+
+        if (data?.hourly?.time && data?.hourly?.temperature_2m) {
+          const now = new Date()
+          const currentHourTimestamp = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            now.getHours(),
+            0,
+            0
+          ).getTime()
+
+          const nextDaytimeHours: HourlyForecastItem[] = []
+
+          for (let i = 0; i < data.hourly.time.length; i++) {
+            const isoTime: string = data.hourly.time[i]
+            const itemDate = new Date(isoTime)
+            if (itemDate.getTime() < currentHourTimestamp) continue
+
+            const hourNum = itemDate.getHours()
+            // Pomijamy godziny nocne 22:00 - 06:00 (zostawiamy godziny dzienne 07:00 - 21:00)
+            if (hourNum >= 22 || hourNum <= 6) continue
+
+            const hourLabel = `${String(hourNum).padStart(2, '0')}:00`
+            nextDaytimeHours.push({
+              hour: hourLabel,
+              temp: Math.round(data.hourly.temperature_2m[i]),
+              code: data.hourly.weather_code?.[i] ?? 1,
+            })
+
+            if (nextDaytimeHours.length >= 12) break
+          }
+
+          if (nextDaytimeHours.length > 0) {
+            setHourlyForecast(nextDaytimeHours)
+          }
+        }
+      } catch {
+        // Zachowaj dane zapasowe w trybie offline
+      }
+    }
+
+    fetchMinskWeather()
+    const weatherTimer = setInterval(fetchMinskWeather, 15 * 60 * 1000)
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
@@ -102,11 +221,11 @@ export default function Page() {
       setIsFullscreen(Boolean(document.fullscreenElement))
     }
 
-    window.addEventListener('beforeinstallprompt', handleFullscreenChange)
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => {
       clearInterval(timer)
+      clearInterval(weatherTimer)
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
@@ -176,9 +295,10 @@ export default function Page() {
     >
       <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col gap-4">
         {/* Top Bar — Horizontal Tablet Header */}
-        <header className="flex shrink-0 items-center justify-between rounded-2xl border border-white/[0.08] bg-[#151617]/90 px-5 py-3 backdrop-blur-md">
-          <div className="flex items-center gap-6">
-            <div>
+        <header className="flex shrink-0 items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-[#151617]/90 px-5 py-2.5 backdrop-blur-md">
+          <div className="flex min-w-0 flex-1 items-center gap-5">
+            {/* Greeting */}
+            <div className="shrink-0">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#737578]">
                 Dzisiaj · Środa, {selectedDate} października · {currentTime}
               </p>
@@ -186,25 +306,55 @@ export default function Page() {
                 Dzień dobry, Wojtek.
               </h1>
             </div>
-            <div className="hidden h-8 w-px bg-white/[0.08] md:block" />
-            <div className="hidden items-center gap-3 rounded-xl border border-white/[0.06] bg-[#1b1c1d] px-3.5 py-2 md:flex">
-              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-[#292a2b]">
-                <div
-                  className="h-full rounded-full bg-[#d8d8d6] transition-all duration-300"
-                  style={{ width: `${progressPercent}%` }}
-                />
+
+            <div className="hidden h-9 w-px shrink-0 bg-white/[0.08] md:block" />
+
+            {/* Horizontal Weather Widget — Mińsk Mazowiecki (Aktualna + 12h dziennych bez 22:00-06:00) */}
+            <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-white/[0.07] bg-[#1b1c1d] px-3 py-1.5">
+              {/* Current weather in Mińsk Mazowiecki */}
+              <div className="flex shrink-0 items-center gap-2.5 border-r border-white/[0.08] pr-3">
+                <div className="flex size-8 items-center justify-center rounded-lg bg-[#252628]">
+                  <WeatherIcon code={currentWeather.code} size={17} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-[#7c7e81]">
+                    <MapPin size={10} className="text-[#8e9092]" />
+                    <span>Mińsk Maz.</span>
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-sm font-semibold tabular-nums text-[#f3f3f1]">
+                      {currentWeather.temp}°C
+                    </span>
+                    <span className="text-[11px] text-[#8e9092]">
+                      {getWeatherLabel(currentWeather.code)}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <span className="text-xs font-medium tabular-nums text-[#9a9c9e]">
-                {completed}/{events.length} gotowe
-              </span>
+
+              {/* 12-hour horizontal daytime forecast (skipping 22:00 - 06:00) */}
+              <div className="custom-scroll flex min-w-0 flex-1 items-center justify-between gap-1 overflow-x-auto py-0.5">
+                {hourlyForecast.map((slot) => (
+                  <div
+                    key={slot.hour}
+                    className="flex min-w-[42px] shrink-0 flex-col items-center gap-0.5 rounded-lg px-1.5 py-1 transition hover:bg-white/[0.05]"
+                  >
+                    <span className="text-[10px] tabular-nums text-[#77797c]">{slot.hour}</span>
+                    <WeatherIcon code={slot.code} size={13} />
+                    <span className="text-[11px] font-medium tabular-nums text-[#e2e2e0]">
+                      {slot.temp}°
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-2">
             {installPrompt && (
               <button
                 onClick={handleInstallClick}
-                className="flex items-center gap-2 rounded-xl border border-white/[0.2] bg-white/[0.08] px-3.5 py-2.5 text-xs font-medium text-white transition hover:bg-white/[0.14] active:scale-[0.98]"
+                className="flex items-center gap-2 rounded-xl border border-white/[0.2] bg-white/[0.08] px-3 py-2.5 text-xs font-medium text-white transition hover:bg-white/[0.14] active:scale-[0.98]"
               >
                 <Download size={15} />
                 <span>Zainstaluj PWA</span>
@@ -213,23 +363,25 @@ export default function Page() {
 
             <button
               onClick={() => setAmbientDim((prev) => !prev)}
-              className={`flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs font-medium transition active:scale-[0.98] ${
+              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition active:scale-[0.98] ${
                 ambientDim
                   ? 'border-white/[0.22] bg-white/[0.1] text-white'
                   : 'border-white/[0.1] bg-[#1b1c1d] text-[#a7a8a8] hover:bg-white/[0.06] hover:text-white'
               }`}
             >
               <SunMedium size={15} />
-              <span>{ambientDim ? 'Tryb nocny: Wł.' : 'Tryb nocny'}</span>
+              <span className="hidden xl:inline">
+                {ambientDim ? 'Tryb nocny: Wł.' : 'Tryb nocny'}
+              </span>
             </button>
 
             <button
               onClick={toggleFullscreen}
-              className="flex items-center gap-2 rounded-xl border border-white/[0.1] bg-[#1b1c1d] px-3.5 py-2.5 text-xs font-medium text-[#a7a8a8] transition hover:bg-white/[0.06] hover:text-white active:scale-[0.98]"
+              className="flex items-center gap-2 rounded-xl border border-white/[0.1] bg-[#1b1c1d] px-3 py-2.5 text-xs font-medium text-[#a7a8a8] transition hover:bg-white/[0.06] hover:text-white active:scale-[0.98]"
               title="Przełącz pełny ekran PWA (ukryj pasek baterii i nawigacji)"
             >
               {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-              <span>{isFullscreen ? 'Okno' : 'Pełny ekran'}</span>
+              <span className="hidden xl:inline">{isFullscreen ? 'Okno' : 'Pełny ekran'}</span>
             </button>
 
             <button
