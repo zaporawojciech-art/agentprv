@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   CalendarDays,
   Check,
@@ -14,7 +14,7 @@ import {
   CloudSnow,
   CloudSun,
   Command,
-  Download,
+  Link2,
   ListTodo,
   MapPin,
   Maximize2,
@@ -22,21 +22,29 @@ import {
   Minimize2,
   MoreHorizontal,
   Plus,
+  RefreshCw,
   Sparkles,
   Sun,
   SunMedium,
   X,
 } from 'lucide-react'
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
-}
+const GOOGLE_CALENDAR_EMAIL = 'zaporawojciech@gmail.com'
 
 interface HourlyForecastItem {
   hour: string
   temp: number
   code: number
+}
+
+interface CalendarEventItem {
+  id?: string
+  time: string
+  title: string
+  meta: string
+  type: string
+  active: boolean
+  dateStr?: string
 }
 
 const fallbackHourlyForecast: HourlyForecastItem[] = [
@@ -78,16 +86,16 @@ function WeatherIcon({ code, size = 14 }: { code: number; size?: number }) {
 }
 
 const weekDays = [
-  { day: 'Pon', date: 13, count: 4, focus: 'Porządek i plan' },
-  { day: 'Wt', date: 14, count: 5, focus: 'Spotkania zespołu' },
-  { day: 'Śr', date: 15, count: 5, focus: 'Praca głęboka · Atlas' },
-  { day: 'Czw', date: 16, count: 3, focus: 'Warsztaty produktowe' },
-  { day: 'Pt', date: 17, count: 4, focus: 'Podsumowanie tygodnia' },
-  { day: 'Sob', date: 18, count: 2, focus: 'Odpoczynek i dom' },
-  { day: 'Nd', date: 19, count: 1, focus: 'Spokojny wieczór' },
+  { day: 'Pon', date: 12, count: 4, focus: 'Porządek i plan' },
+  { day: 'Wt', date: 13, count: 5, focus: 'Spotkania zespołu' },
+  { day: 'Śr', date: 14, count: 5, focus: 'Praca głęboka · Atlas' },
+  { day: 'Czw', date: 15, count: 3, focus: 'Warsztaty produktowe' },
+  { day: 'Pt', date: 16, count: 4, focus: 'Podsumowanie tygodnia' },
+  { day: 'Sob', date: 17, count: 2, focus: 'Odpoczynek i dom' },
+  { day: 'Nd', date: 18, count: 1, focus: 'Spokojny wieczór' },
 ]
 
-const initialEvents = [
+const initialEvents: CalendarEventItem[] = [
   { time: '08:30', title: 'Poranny spacer', meta: 'Rutyna · 30 min', type: 'routine', active: true },
   { time: '10:00', title: 'Praca głęboka', meta: 'Projekt Atlas · 2 godz.', type: 'work', active: false },
   { time: '12:30', title: 'Lunch z Martą', meta: 'Bistro Młyńska · 1 godz.', type: 'personal', active: false },
@@ -108,9 +116,10 @@ const calendarCells = [
 ]
 
 export default function Page() {
-  const [selectedDate, setSelectedDate] = useState(15)
+  const [selectedDate, setSelectedDate] = useState(18)
   const [view, setView] = useState<'Dzień' | 'Tydzień'>('Dzień')
-  const [events, setEvents] = useState(initialEvents)
+  const [events, setEvents] = useState<CalendarEventItem[]>(initialEvents)
+  const [allMonthEvents, setAllMonthEvents] = useState<CalendarEventItem[]>([])
   const [routines, setRoutines] = useState(initialRoutines)
   const [showComposer, setShowComposer] = useState(false)
   const [newTask, setNewTask] = useState('')
@@ -119,7 +128,6 @@ export default function Page() {
   const [ambientDim, setAmbientDim] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const [assistantPrompt, setAssistantPrompt] = useState('„Zaplanuj mi spokojne popołudnie”')
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [currentTime, setCurrentTime] = useState('21:30')
   const [currentWeather, setCurrentWeather] = useState<{ temp: number; code: number }>({
     temp: 11,
@@ -128,11 +136,102 @@ export default function Page() {
   const [hourlyForecast, setHourlyForecast] =
     useState<HourlyForecastItem[]>(fallbackHourlyForecast)
 
+  // Google Calendar state (zaporawojciech@gmail.com)
+  const [gcalConnected, setGcalConnected] = useState(false)
+  const [gcalLoading, setGcalLoading] = useState(false)
+  const [showGcalModal, setShowGcalModal] = useState(false)
+  const [icalInput, setIcalInput] = useState('')
+  const [oauthTokenInput, setOauthTokenInput] = useState('')
+  const [googleClientIdInput, setGoogleClientIdInput] = useState(
+    process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+  )
+  const [gcalStatusMsg, setGcalStatusMsg] = useState('')
+
   const completed = useMemo(() => events.filter((event) => event.active).length, [events])
   const progressPercent = useMemo(
     () => (events.length > 0 ? Math.round((completed / events.length) * 100) : 0),
     [completed, events.length]
   )
+
+  const datesWithGoogleEvents = useMemo(() => {
+    const set = new Set<number>()
+    for (const ev of allMonthEvents) {
+      if (ev.dateStr) {
+        const dayNum = Number(ev.dateStr.split('-')[2])
+        if (!Number.isNaN(dayNum)) set.add(dayNum)
+      }
+    }
+    return set
+  }, [allMonthEvents])
+
+  const syncGoogleCalendar = useCallback(
+    async (day: number, customIcal?: string, customToken?: string) => {
+      setGcalLoading(true)
+      try {
+        const year = new Date().getFullYear()
+        const month = String(new Date().getMonth() + 1).padStart(2, '0')
+        const dateStr = `${year}-${month}-${String(day).padStart(2, '0')}`
+
+        const savedIcal =
+          customIcal !== undefined
+            ? customIcal
+            : typeof window !== 'undefined'
+              ? localStorage.getItem('gcal_ical_url') || ''
+              : ''
+        const savedToken =
+          customToken !== undefined
+            ? customToken
+            : typeof window !== 'undefined'
+              ? localStorage.getItem('gcal_oauth_token') || ''
+              : ''
+
+        const params = new URLSearchParams({ date: dateStr })
+        if (savedIcal) params.set('icalUrl', savedIcal)
+
+        const res = await fetch(`/api/calendar?${params.toString()}`, {
+          headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
+        })
+        if (!res.ok) return
+        const data = await res.json()
+
+        if (data.connected) {
+          setGcalConnected(true)
+          setGcalStatusMsg(`Połączono z ${GOOGLE_CALENDAR_EMAIL}`)
+          if (Array.isArray(data.allMonthEvents)) {
+            setAllMonthEvents(data.allMonthEvents)
+          }
+          if (Array.isArray(data.events) && data.events.length > 0) {
+            setEvents(data.events)
+          } else if (Array.isArray(data.events)) {
+            setEvents([])
+          }
+        } else {
+          setGcalConnected(false)
+          if (data.message) setGcalStatusMsg(data.message)
+        }
+      } catch {
+        // Ignoruj błędy sieciowe w trybie offline
+      } finally {
+        setGcalLoading(false)
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedIcal = localStorage.getItem('gcal_ical_url') || ''
+      const savedToken = localStorage.getItem('gcal_oauth_token') || ''
+      const savedClientId =
+        localStorage.getItem('gcal_client_id') ||
+        process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+        ''
+      setIcalInput(savedIcal)
+      setOauthTokenInput(savedToken)
+      setGoogleClientIdInput(savedClientId)
+    }
+    syncGoogleCalendar(selectedDate)
+  }, [selectedDate, syncGoogleCalendar])
 
   useEffect(() => {
     const updateClock = () => {
@@ -212,39 +311,72 @@ export default function Page() {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
 
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault()
-      setInstallPrompt(e as BeforeInstallPromptEvent)
-    }
-
     const handleFullscreenChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement))
     }
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => {
       clearInterval(timer)
       clearInterval(weatherTimer)
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
   }, [])
 
-  async function handleInstallClick() {
-    if (!installPrompt) return
-    await installPrompt.prompt()
-    const choice = await installPrompt.userChoice
-    if (choice.outcome === 'accepted') {
-      setInstallPrompt(null)
+  function handleSaveGcalSettings() {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('gcal_ical_url', icalInput.trim())
+      localStorage.setItem('gcal_oauth_token', oauthTokenInput.trim())
+      localStorage.setItem('gcal_client_id', googleClientIdInput.trim())
     }
+    syncGoogleCalendar(selectedDate, icalInput.trim(), oauthTokenInput.trim())
+    setShowGcalModal(false)
   }
+
+  function startGoogleOAuthPopup() {
+    const clientId = googleClientIdInput.trim()
+    if (!clientId) {
+      setGcalStatusMsg(
+        'Aby użyć logowania OAuth jednym kliknięciem, wpisz Google OAuth Client ID poniżej lub wklej bezpośrednio Tajny adres w formacie iCal (.ics).'
+      )
+      return
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('gcal_client_id', clientId)
+    }
+
+    const redirectUri = window.location.origin
+    const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+      clientId
+    )}&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&response_type=token&scope=${scope}&login_hint=${encodeURIComponent(
+      GOOGLE_CALENDAR_EMAIL
+    )}&prompt=consent`
+
+    window.location.href = authUrl
+  }
+
+  // Odbierz token OAuth z hash URL po przekierowaniu z Google
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.location.hash.includes('access_token=')) {
+      const params = new URLSearchParams(window.location.hash.slice(1))
+      const token = params.get('access_token')
+      if (token) {
+        localStorage.setItem('gcal_oauth_token', token)
+        setOauthTokenInput(token)
+        window.history.replaceState(null, '', window.location.pathname)
+        syncGoogleCalendar(selectedDate, undefined, token)
+      }
+    }
+  }, [selectedDate, syncGoogleCalendar])
 
   async function toggleFullscreen() {
     if (!document.fullscreenElement) {
       try {
         await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
-        // Lock to landscape when in fullscreen on supported mobile/tablet browsers
         const orientation = screen.orientation as ScreenOrientation & {
           lock?: (mode: string) => Promise<void>
         }
@@ -271,20 +403,43 @@ export default function Page() {
     )
   }
 
-  function addTask() {
+  async function addTask() {
     if (!newTask.trim()) return
+    const title = newTask.trim()
+    const time = newTaskTime || '20:00'
+
     setEvents((current) => [
       ...current,
       {
-        time: newTaskTime || '20:00',
-        title: newTask.trim(),
-        meta: 'Zadanie · dodane teraz',
+        time,
+        title,
+        meta: gcalConnected
+          ? `${GOOGLE_CALENDAR_EMAIL} · dodane teraz`
+          : 'Zadanie · dodane teraz',
         type: 'task',
         active: false,
       },
     ])
     setNewTask('')
     setShowComposer(false)
+
+    // Jeśli mamy token OAuth, zapisz wydarzenie również bezpośrednio w Kalendarzu Google zaporawojciech@gmail.com
+    const savedToken =
+      typeof window !== 'undefined' ? localStorage.getItem('gcal_oauth_token') : null
+    if (savedToken) {
+      const year = new Date().getFullYear()
+      const month = String(new Date().getMonth() + 1).padStart(2, '0')
+      const dateStr = `${year}-${month}-${String(selectedDate).padStart(2, '0')}`
+      await fetch('/api/calendar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${savedToken}`,
+        },
+        body: JSON.stringify({ title, dateStr, time }),
+      }).catch(() => {})
+      syncGoogleCalendar(selectedDate)
+    }
   }
 
   return (
@@ -300,7 +455,7 @@ export default function Page() {
             {/* Greeting */}
             <div className="shrink-0">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                Dzisiaj · Środa, {selectedDate} października · {currentTime}
+                Dzisiaj · {selectedDate} października · {currentTime}
               </p>
               <h1 className="mt-0.5 text-2xl font-semibold tracking-[-0.04em] text-[#f3f3f1]">
                 Dzień dobry, Wojtek.
@@ -351,16 +506,6 @@ export default function Page() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            {installPrompt && (
-              <button
-                onClick={handleInstallClick}
-                className="flex items-center gap-2 rounded-xl border border-white/[0.2] bg-white/[0.08] px-3 py-2.5 text-xs font-medium text-white transition hover:bg-white/[0.14] active:scale-[0.98]"
-              >
-                <Download size={15} />
-                <span>Zainstaluj PWA</span>
-              </button>
-            )}
-
             <button
               onClick={() => setAmbientDim((prev) => !prev)}
               className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition active:scale-[0.98] ${
@@ -411,7 +556,7 @@ export default function Page() {
                   </button>
                   <div className="flex items-center gap-2 text-xs font-medium text-[#e2e2e0]">
                     <CalendarDays size={14} className="text-[#85878a]" />
-                    <span>Październik 2025</span>
+                    <span>Październik 2026</span>
                   </div>
                   <button
                     onClick={() => setSelectedDate((d) => Math.min(31, d + 1))}
@@ -431,44 +576,52 @@ export default function Page() {
                 </div>
 
                 <div className="grid grid-cols-7 gap-1">
-                  {calendarCells.map((date, index) => (
-                    <button
-                      key={index}
-                      onClick={() => date && setSelectedDate(date)}
-                      disabled={!date}
-                      className={`relative flex h-8 items-center justify-center rounded-lg text-xs tabular-nums transition xl:h-9 ${
-                        date === selectedDate
-                          ? 'bg-[#eeeeec] font-semibold text-[#171819] shadow-sm'
-                          : date === 15
-                            ? 'bg-white/[0.05] text-[#f2f2f0]'
-                            : 'text-[#888a8c] hover:bg-white/[0.06] hover:text-white'
-                      } ${
-                        date === 15 && date !== selectedDate
-                          ? 'after:absolute after:bottom-1 after:size-1 after:rounded-full after:bg-[#999]'
-                          : ''
-                      }`}
-                    >
-                      {date}
-                    </button>
-                  ))}
+                  {calendarCells.map((date, index) => {
+                    const hasEvent = date ? datesWithGoogleEvents.has(date) || date === 18 : false
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => date && setSelectedDate(date)}
+                        disabled={!date}
+                        className={`relative flex h-8 items-center justify-center rounded-lg text-xs tabular-nums transition xl:h-9 ${
+                          date === selectedDate
+                            ? 'bg-[#eeeeec] font-semibold text-[#171819] shadow-sm'
+                            : date === 18
+                              ? 'bg-white/[0.05] text-[#f2f2f0]'
+                              : 'text-[#888a8c] hover:bg-white/[0.06] hover:text-white'
+                        } ${
+                          hasEvent && date !== selectedDate
+                            ? 'after:absolute after:bottom-1 after:size-1 after:rounded-full after:bg-[#999]'
+                            : ''
+                        }`}
+                      >
+                        {date}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
               <div className="mt-3 flex items-center justify-between border-t border-white/[0.07] pt-3">
                 <button
                   className="text-xs font-medium text-[#8e9092] transition hover:text-white"
-                  onClick={() => setSelectedDate(15)}
+                  onClick={() => setSelectedDate(18)}
                 >
                   Wróć do dziś
                 </button>
-                <div className="flex gap-4 text-[11px] text-[#6f7174]">
-                  <span className="flex items-center gap-1.5">
-                    <span className="size-1.5 rounded-full bg-[#888]" /> dziś
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="size-1.5 rounded-full bg-[#eee]" /> wybrany
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowGcalModal(true)}
+                  className="flex items-center gap-1.5 text-[11px] text-[#8e9092] transition hover:text-white"
+                  title="Konfiguracja synchronizacji Kalendarza Google"
+                >
+                  <span
+                    className={`size-1.5 rounded-full ${
+                      gcalConnected ? 'bg-emerald-400' : 'bg-[#888]'
+                    }`}
+                  />
+                  <span className="truncate max-w-[165px]">{GOOGLE_CALENDAR_EMAIL}</span>
+                </button>
               </div>
             </div>
 
@@ -484,8 +637,9 @@ export default function Page() {
                   </h2>
                 </div>
                 <button
+                  onClick={() => setShowGcalModal(true)}
                   className="rounded-lg p-1.5 text-[#77797c] transition hover:bg-white/[0.06] hover:text-white"
-                  aria-label="Więcej opcji"
+                  aria-label="Ustawienia Kalendarza Google"
                 >
                   <MoreHorizontal size={17} />
                 </button>
@@ -530,17 +684,39 @@ export default function Page() {
 
           {/* Column 2: Center Timeline / Schedule View (5 cols) */}
           <div className="col-span-5 flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-5">
-            <div className="mb-4 flex shrink-0 items-center justify-between">
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                  Harmonogram
-                </p>
+            <div className="mb-4 flex shrink-0 items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#737578]">
+                    Harmonogram
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowGcalModal(true)}
+                    className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-[#1b1c1d] px-2 py-0.5 text-[10px] text-[#9a9c9e] transition hover:border-white/[0.2] hover:text-white"
+                  >
+                    <span
+                      className={`size-1.5 rounded-full ${
+                        gcalConnected ? 'bg-emerald-400' : 'bg-amber-400/80'
+                      }`}
+                    />
+                    <span className="truncate">{GOOGLE_CALENDAR_EMAIL}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => syncGoogleCalendar(selectedDate)}
+                    className="rounded-md p-1 text-[#77797c] transition hover:bg-white/[0.06] hover:text-white"
+                    title="Odśwież Kalendarz Google"
+                  >
+                    <RefreshCw size={12} className={gcalLoading ? 'animate-spin text-white' : ''} />
+                  </button>
+                </div>
                 <h2 className="mt-0.5 text-base font-semibold text-[#f3f3f1]">
                   {view === 'Dzień' ? 'Oś czasu dnia' : 'Przegląd tygodnia'}
                 </h2>
               </div>
 
-              <div className="flex rounded-xl border border-white/[0.08] bg-[#0d0e0f] p-1">
+              <div className="flex shrink-0 rounded-xl border border-white/[0.08] bg-[#0d0e0f] p-1">
                 <button
                   onClick={() => setView('Dzień')}
                   className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition ${
@@ -565,61 +741,79 @@ export default function Page() {
             </div>
 
             {view === 'Dzień' ? (
-              <div className="custom-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto pl-2 pr-1">
-                {events.map((event, index) => (
-                  <div
-                    key={`${event.title}-${index}`}
-                    onClick={() => toggleEvent(index)}
-                    className="group flex cursor-pointer gap-4 border-l border-white/[0.09] pb-3.5 pl-5 last:pb-1"
-                  >
+              events.length > 0 ? (
+                <div className="custom-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto pl-2 pr-1">
+                  {events.map((event, index) => (
                     <div
-                      className={`absolute -ml-[25px] mt-3.5 size-2.5 rounded-full border-2 border-[#151617] transition ${
-                        event.active
-                          ? 'bg-[#eee] ring-2 ring-[#eee]/30'
-                          : 'bg-[#666] ring-1 ring-[#666]/40 group-hover:bg-[#999]'
-                      }`}
-                    />
-                    <div className="w-12 shrink-0 pt-2.5 text-xs font-medium tabular-nums text-[#7c7e81]">
-                      {event.time}
-                    </div>
-                    <div
-                      className={`flex flex-1 items-center justify-between rounded-xl border px-4 py-3 transition active:scale-[0.99] ${
-                        event.active
-                          ? 'border-white/[0.05] bg-[#1a1b1c]/60'
-                          : 'border-white/[0.08] bg-[#1b1c1d] group-hover:border-white/[0.16]'
-                      }`}
+                      key={`${event.title}-${index}`}
+                      onClick={() => toggleEvent(index)}
+                      className="group flex cursor-pointer gap-4 border-l border-white/[0.09] pb-3.5 pl-5 last:pb-1"
                     >
-                      <div>
-                        <p
-                          className={`text-sm font-medium transition ${
-                            event.active ? 'text-[#7e8082] line-through' : 'text-[#ededeb]'
-                          }`}
-                        >
-                          {event.title}
-                        </p>
-                        <p className="mt-0.5 text-xs text-[#6f7174]">{event.meta}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          toggleEvent(index)
-                        }}
-                        className={`flex size-8 items-center justify-center rounded-full transition ${
+                      <div
+                        className={`absolute -ml-[25px] mt-3.5 size-2.5 rounded-full border-2 border-[#151617] transition ${
                           event.active
-                            ? 'bg-[#dededc] text-[#171819]'
-                            : 'text-[#686a6d] hover:bg-white/[0.08] hover:text-white'
+                            ? 'bg-[#eee] ring-2 ring-[#eee]/30'
+                            : 'bg-[#666] ring-1 ring-[#666]/40 group-hover:bg-[#999]'
                         }`}
-                        aria-label={
-                          event.active ? 'Oznacz jako nieukończone' : 'Oznacz jako ukończone'
-                        }
+                      />
+                      <div className="w-12 shrink-0 pt-2.5 text-xs font-medium tabular-nums text-[#7c7e81]">
+                        {event.time}
+                      </div>
+                      <div
+                        className={`flex flex-1 items-center justify-between rounded-xl border px-4 py-3 transition active:scale-[0.99] ${
+                          event.active
+                            ? 'border-white/[0.05] bg-[#1a1b1c]/60'
+                            : 'border-white/[0.08] bg-[#1b1c1d] group-hover:border-white/[0.16]'
+                        }`}
                       >
-                        {event.active ? <Check size={15} /> : <Circle size={16} />}
-                      </button>
+                        <div>
+                          <p
+                            className={`text-sm font-medium transition ${
+                              event.active ? 'text-[#7e8082] line-through' : 'text-[#ededeb]'
+                            }`}
+                          >
+                            {event.title}
+                          </p>
+                          <p className="mt-0.5 text-xs text-[#6f7174]">{event.meta}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleEvent(index)
+                          }}
+                          className={`flex size-8 items-center justify-center rounded-full transition ${
+                            event.active
+                              ? 'bg-[#dededc] text-[#171819]'
+                              : 'text-[#686a6d] hover:bg-white/[0.08] hover:text-white'
+                          }`}
+                          aria-label={
+                            event.active ? 'Oznacz jako nieukończone' : 'Oznacz jako ukończone'
+                          }
+                        >
+                          {event.active ? <Check size={15} /> : <Circle size={16} />}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] p-6 text-center">
+                  <p className="text-sm font-medium text-[#bfc0be]">
+                    Brak zaplanowanych wydarzeń na {selectedDate} października
+                  </p>
+                  <p className="mt-1 text-xs text-[#6f7174]">
+                    Kalendarz Google ({GOOGLE_CALENDAR_EMAIL}) nie zawiera wpisów w tym dniu.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowComposer(true)}
+                    className="mt-4 flex items-center gap-1.5 rounded-xl bg-white/[0.08] px-3.5 py-2 text-xs font-medium text-white hover:bg-white/[0.14]"
+                  >
+                    <Plus size={14} /> Dodaj wydarzenie
+                  </button>
+                </div>
+              )
             ) : (
               <div className="custom-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
                 {weekDays.map((item) => {
@@ -651,7 +845,7 @@ export default function Page() {
                         <div>
                           <p className="text-sm font-medium text-[#ededeb]">{item.focus}</p>
                           <p className="mt-0.5 text-xs text-[#6f7174]">
-                            Październik · kliknij, aby otworzyć dzień
+                            {GOOGLE_CALENDAR_EMAIL} · kliknij, aby otworzyć dzień
                           </p>
                         </div>
                       </div>
@@ -759,12 +953,17 @@ export default function Page() {
         </section>
       </div>
 
-      {/* Modal Composer */}
+      {/* Modal: Dodaj zadanie / wydarzenie */}
       {showComposer && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/65 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#1b1c1d] p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-semibold text-[#f3f3f1]">Dodaj do planu dnia</h2>
+              <div>
+                <h2 className="font-semibold text-[#f3f3f1]">Dodaj do planu dnia</h2>
+                <p className="text-[11px] text-[#77797c]">
+                  {selectedDate} października · {GOOGLE_CALENDAR_EMAIL}
+                </p>
+              </div>
               <button
                 onClick={() => setShowComposer(false)}
                 className="rounded-lg p-1 text-[#85878a] hover:bg-white/[0.06] hover:text-white"
@@ -785,7 +984,7 @@ export default function Page() {
                 value={newTask}
                 onChange={(event) => setNewTask(event.target.value)}
                 onKeyDown={(event) => event.key === 'Enter' && addTask()}
-                placeholder="Np. przygotować kolację"
+                placeholder="Np. spotkanie projektowe"
                 className="flex-1 rounded-xl border border-white/[0.1] bg-[#121314] px-4 py-3 text-sm text-white outline-none placeholder:text-[#5c5e60] focus:border-white/[0.3]"
               />
             </div>
@@ -801,6 +1000,100 @@ export default function Page() {
                 className="rounded-xl bg-[#e9e9e7] px-4 py-2.5 text-xs font-semibold text-[#171819] transition hover:bg-white"
               >
                 Dodaj zadanie
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Połączenie z Kalendarzem Google (zaporawojciech@gmail.com) */}
+      {showGcalModal && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#1b1c1d] p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-white/[0.07]">
+                  <Link2 size={17} className="text-[#e9e9e7]" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-[#f3f3f1]">
+                    Kalendarz Google · {GOOGLE_CALENDAR_EMAIL}
+                  </h2>
+                  <p className="text-xs text-[#7c7e81]">
+                    Synchronizacja wydarzeń z kontem {GOOGLE_CALENDAR_EMAIL}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGcalModal(false)}
+                className="rounded-lg p-1 text-[#85878a] hover:bg-white/[0.06] hover:text-white"
+                aria-label="Zamknij"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {gcalStatusMsg && (
+              <div className="mb-4 rounded-xl border border-white/[0.08] bg-[#121314] px-3.5 py-2.5 text-xs text-[#bfc0be]">
+                {gcalStatusMsg}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-4">
+              {/* Opcja 1: Tajny adres iCal (.ics) — działa od razu bez Google Cloud Console */}
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-[#d7d7d5]">
+                  1. Tajny adres w formacie iCal (.ics) dla {GOOGLE_CALENDAR_EMAIL}
+                </label>
+                <input
+                  value={icalInput}
+                  onChange={(e) => setIcalInput(e.target.value)}
+                  placeholder="https://calendar.google.com/calendar/ical/zaporawojciech%40gmail.com/private-.../basic.ics"
+                  className="w-full rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2.5 text-xs text-white outline-none placeholder:text-[#55575a] focus:border-white/[0.3]"
+                />
+                <p className="mt-1 text-[11px] text-[#6f7174]">
+                  Znajdziesz go w: Ustawienia Kalendarza Google → {GOOGLE_CALENDAR_EMAIL} →
+                  Integrowanie kalendarza → Tajny adres w formacie iCal.
+                </p>
+              </div>
+
+              {/* Opcja 2: Google OAuth 2.0 (pełny odczyt i zapis) */}
+              <div className="border-t border-white/[0.07] pt-3.5">
+                <label className="mb-1.5 block text-xs font-medium text-[#d7d7d5]">
+                  2. Pełna synchronizacja dwukierunkowa (OAuth 2.0)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    value={googleClientIdInput}
+                    onChange={(e) => setGoogleClientIdInput(e.target.value)}
+                    placeholder="Google OAuth Client ID (opcjonalnie)"
+                    className="flex-1 rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2 text-xs text-white outline-none placeholder:text-[#55575a] focus:border-white/[0.3]"
+                  />
+                  <button
+                    type="button"
+                    onClick={startGoogleOAuthPopup}
+                    className="shrink-0 rounded-xl border border-white/[0.14] bg-[#252628] px-3.5 py-2 text-xs font-medium text-white transition hover:bg-[#303133]"
+                  >
+                    Autoryzuj z Google
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowGcalModal(false)}
+                className="rounded-xl px-4 py-2 text-xs text-[#85878a] hover:text-white"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveGcalSettings}
+                className="rounded-xl bg-[#e9e9e7] px-4 py-2 text-xs font-semibold text-[#171819] transition hover:bg-white"
+              >
+                Zapisz i synchronizuj
               </button>
             </div>
           </div>
