@@ -976,14 +976,6 @@ export default function Page() {
                     Tydzień
                   </button>
                 </div>
-
-                <button
-                  onClick={() => setShowComposer(true)}
-                  className="flex items-center gap-1.5 rounded-xl bg-[#e9e9e7] px-3.5 py-2 text-xs font-semibold text-[#171819] transition hover:bg-white active:scale-[0.98]"
-                >
-                  <Plus size={14} />
-                  <span>Dodaj</span>
-                </button>
               </div>
             </div>
 
@@ -1052,13 +1044,6 @@ export default function Page() {
                   <p className="mt-1 text-xs text-[#6f7174]">
                     Kalendarz Google ({GOOGLE_CALENDAR_EMAIL}) nie zawiera wpisów w tym dniu.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowComposer(true)}
-                    className="mt-4 flex items-center gap-1.5 rounded-xl bg-white/[0.08] px-3.5 py-2 text-xs font-medium text-white hover:bg-white/[0.14]"
-                  >
-                    <Plus size={14} /> Dodaj wydarzenie
-                  </button>
                 </div>
               )
             ) : (
