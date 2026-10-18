@@ -121,33 +121,6 @@ const defaultHealthData: GoogleFitData = {
   account: GOOGLE_FIT_EMAIL,
 }
 
-function buildDynamicFallbackForecast(): HourlyForecastItem[] {
-  const now = new Date()
-  const result: HourlyForecastItem[] = []
-  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), 0, 0)
-  const todayDate = now.getDate()
-
-  for (let step = 0; step < 48 && result.length < 12; step++) {
-    const h = cursor.getHours()
-    if (h < 22 && h > 6) {
-      const isNow = step === 0
-      const isTomorrow = cursor.getDate() !== todayDate
-      const hourLabel = `${String(h).padStart(2, '0')}:00`
-      const sampleTemp = h >= 12 && h <= 16 ? 15 : h >= 9 && h <= 18 ? 12 : 9
-      const sampleCode = h >= 11 && h <= 15 ? 0 : 1
-      result.push({
-        id: `${cursor.getDate()}-${hourLabel}`,
-        hour: hourLabel,
-        temp: sampleTemp,
-        code: sampleCode,
-        isNow,
-        isTomorrow,
-      })
-    }
-    cursor.setHours(cursor.getHours() + 1)
-  }
-  return result
-}
 
 function getWeatherLabel(code: number): string {
   if (code === 0) return 'Słonecznie'
@@ -442,14 +415,10 @@ export default function Page() {
   const [newTaskTime, setNewTaskTime] = useState('20:00')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [ambientDim, setAmbientDim] = useState(false)
-  const [currentTime, setCurrentTime] = useState('21:30')
-  const [currentWeather, setCurrentWeather] = useState<{ temp: number; code: number }>({
-    temp: 11,
-    code: 2,
-  })
-  const [hourlyForecast, setHourlyForecast] = useState<HourlyForecastItem[]>(() =>
-    buildDynamicFallbackForecast()
-  )
+  const [currentTime, setCurrentTime] = useState('')
+  const [currentWeather, setCurrentWeather] = useState<{ temp: number; code: number } | null>(null)
+  const [hourlyForecast, setHourlyForecast] = useState<HourlyForecastItem[]>([])
+
 
   // Google Calendar state (zaporawojciech@gmail.com)
   const [gcalConnected, setGcalConnected] = useState(false)
@@ -601,6 +570,22 @@ export default function Page() {
     updateClock()
     const timer = setInterval(updateClock, 15000)
 
+    // Przywróć ostatnią zapisaną pogodę z localStorage, aby uniknąć migotania wartości początkowych
+    try {
+      const cached = localStorage.getItem('agentprv_weather_cache')
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed?.currentWeather) {
+          setCurrentWeather(parsed.currentWeather)
+        }
+        if (Array.isArray(parsed?.hourlyForecast) && parsed.hourlyForecast.length > 0) {
+          setHourlyForecast(parsed.hourlyForecast)
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Pobierz aktualną pogodę dla Mińska Mazowieckiego (52.1794° N, 21.5725° E)
     // oraz 12 kolejnych godzin dziennych (z pominięciem godzin nocnych 22:00 - 06:00)
     const fetchMinskWeather = async () => {
@@ -611,11 +596,13 @@ export default function Page() {
         if (!res.ok) return
         const data = await res.json()
 
+        let currentWeatherData: { temp: number; code: number } | null = null
         if (data?.current) {
-          setCurrentWeather({
+          currentWeatherData = {
             temp: Math.round(data.current.temperature_2m),
             code: data.current.weather_code ?? 1,
-          })
+          }
+          setCurrentWeather(currentWeatherData)
         }
 
         if (data?.hourly?.time && data?.hourly?.temperature_2m) {
@@ -660,6 +647,16 @@ export default function Page() {
 
           if (nextDaytimeHours.length > 0) {
             setHourlyForecast(nextDaytimeHours)
+            try {
+              localStorage.setItem(
+                'agentprv_weather_cache',
+                JSON.stringify({
+                  currentWeather: currentWeatherData,
+                  hourlyForecast: nextDaytimeHours,
+                  timestamp: Date.now(),
+                })
+              )
+            } catch {}
           }
         }
       } catch {
@@ -820,7 +817,8 @@ export default function Page() {
             {/* Greeting */}
             <div className="shrink-0">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                Dzisiaj · {selectedDate} października · {currentTime}
+                Dzisiaj · {selectedDate} października ·{' '}
+                <span suppressHydrationWarning>{currentTime || '--:--'}</span>
               </p>
               <h1 className="mt-0.5 text-2xl font-semibold tracking-[-0.04em] text-[#f3f3f1]">
                 Dzień dobry, Wojtek.
@@ -832,62 +830,81 @@ export default function Page() {
             {/* Horizontal Weather Widget — Mińsk Mazowiecki (Aktualna + 12h dziennych bez 22:00-06:00) */}
             <div className="flex min-w-0 flex-1 items-center gap-3.5 rounded-2xl border border-white/[0.12] bg-[#181a1d] px-3.5 py-2 shadow-inner">
               {/* Current weather in Mińsk Mazowiecki */}
-              <div
-                className={`flex shrink-0 items-center gap-3 rounded-xl border px-3 py-1.5 ${getWeatherCardClasses(
-                  currentWeather.code
-                )}`}
-              >
-                <div className="flex size-11 items-center justify-center rounded-xl bg-black/35">
-                  <WeatherIcon code={currentWeather.code} size={32} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    <MapPin size={11} className="text-zinc-400" />
-                    <span>Mińsk Maz.</span>
+              {currentWeather ? (
+                <div
+                  className={`flex shrink-0 items-center gap-3 rounded-xl border px-3 py-1.5 transition-all duration-300 ${getWeatherCardClasses(
+                    currentWeather.code
+                  )}`}
+                >
+                  <div className="flex size-11 items-center justify-center rounded-xl bg-black/35">
+                    <WeatherIcon code={currentWeather.code} size={32} />
                   </div>
-                  <div className="mt-0.5 flex items-baseline gap-2">
-                    <span
-                      className={`text-xl font-bold leading-none tabular-nums ${getTempColorClass(
-                        currentWeather.temp
-                      )}`}
-                    >
-                      {currentWeather.temp}°C
-                    </span>
-                    <span className="text-xs font-semibold text-white">
-                      {getWeatherLabel(currentWeather.code)}
-                    </span>
+                  <div>
+                    <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                      <MapPin size={11} className="text-zinc-400" />
+                      <span>Mińsk Maz.</span>
+                    </div>
+                    <div className="mt-0.5 flex items-baseline gap-2">
+                      <span
+                        className={`text-xl font-bold leading-none tabular-nums ${getTempColorClass(
+                          currentWeather.temp
+                        )}`}
+                      >
+                        {currentWeather.temp}°C
+                      </span>
+                      <span className="text-xs font-semibold text-white">
+                        {getWeatherLabel(currentWeather.code)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex shrink-0 items-center gap-3 rounded-xl border border-white/[0.08] bg-[#1a1b1e] px-3 py-1.5 animate-pulse min-w-[150px]">
+                  <div className="size-11 rounded-xl bg-white/[0.06]" />
+                  <div className="space-y-1.5">
+                    <div className="h-3 w-14 rounded bg-white/[0.06]" />
+                    <div className="h-4 w-20 rounded bg-white/[0.06]" />
+                  </div>
+                </div>
+              )}
 
               {/* 12-hour horizontal daytime forecast (skipping 22:00 - 06:00) */}
               <div className="custom-scroll flex min-w-0 flex-1 items-center justify-between gap-2 overflow-x-auto py-0.5">
-                {hourlyForecast.map((slot, idx) => {
-                  const showTomorrowTag =
-                    slot.isTomorrow && (idx === 0 || !hourlyForecast[idx - 1]?.isTomorrow)
-                  return (
-                    <div
-                      key={`${slot.id ?? slot.hour}-${idx}`}
-                      className={`flex min-w-[62px] flex-1 shrink-0 flex-col items-center gap-1.5 rounded-xl border px-2.5 py-2 transition hover:scale-[1.03] ${getWeatherCardClasses(
-                        slot.code
-                      )}`}
-                    >
-                      <span className="text-[11px] font-semibold tabular-nums text-white">
-                        {slot.isNow
-                          ? 'Teraz'
-                          : showTomorrowTag
-                            ? `Jutro ${slot.hour}`
-                            : slot.hour}
-                      </span>
-                      <WeatherIcon code={slot.code} size={28} />
-                      <span
-                        className={`text-sm font-bold tabular-nums ${getTempColorClass(slot.temp)}`}
+                {hourlyForecast.length > 0 ? (
+                  hourlyForecast.map((slot, idx) => {
+                    const showTomorrowTag =
+                      slot.isTomorrow && (idx === 0 || !hourlyForecast[idx - 1]?.isTomorrow)
+                    return (
+                      <div
+                        key={`${slot.id ?? slot.hour}-${idx}`}
+                        className={`flex min-w-[62px] flex-1 shrink-0 flex-col items-center gap-1.5 rounded-xl border px-2.5 py-2 transition hover:scale-[1.03] ${getWeatherCardClasses(
+                          slot.code
+                        )}`}
                       >
-                        {slot.temp}°
-                      </span>
-                    </div>
-                  )
-                })}
+                        <span className="text-[11px] font-semibold tabular-nums text-white">
+                          {slot.isNow
+                            ? 'Teraz'
+                            : showTomorrowTag
+                              ? `Jutro ${slot.hour}`
+                              : slot.hour}
+                        </span>
+                        <WeatherIcon code={slot.code} size={28} />
+                        <span
+                          className={`text-sm font-bold tabular-nums ${getTempColorClass(slot.temp)}`}
+                        >
+                          {slot.temp}°
+                        </span>
+                      </div>
+                    )
+                  })
+                ) : (
+                  Array.from({ length: 10 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="min-w-[62px] h-[78px] flex-1 shrink-0 rounded-xl border border-white/[0.05] bg-white/[0.03] animate-pulse"
+                    />
+                  ))
+                )}
               </div>
             </div>
           </div>
