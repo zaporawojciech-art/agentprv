@@ -1100,10 +1100,10 @@ export default function Page() {
             )}
           </div>
 
-          {/* Column 3: Portfel Akcji (3 cols) */}
-          <aside className="col-span-3 flex min-h-0 flex-col">
-            {/* Portfolio Card — Czysty podgląd portfela */}
-            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-5">
+          {/* Column 3: Portfel Akcji (3 cols) — wertykalnie responsywny podgląd */}
+          <aside className="col-span-3 flex min-h-0 flex-col items-start">
+            {/* Portfolio Card — wysokość dostosowuje się dynamicznie do liczby pozycji */}
+            <div className="flex w-full max-h-full flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-4.5 transition-all">
               {/* Header */}
               <div className="mb-3.5 flex shrink-0 items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1122,7 +1122,7 @@ export default function Page() {
               </div>
 
               {/* Portfolio Summary Banner */}
-              <div className="mb-3 rounded-xl border border-white/[0.07] bg-[#1a1b1d] p-3">
+              <div className="mb-3 shrink-0 rounded-xl border border-white/[0.07] bg-[#1a1b1d] p-3">
                 <div className="flex items-baseline justify-between">
                   <span className="text-[10px] font-medium uppercase tracking-wider text-[#737578]">
                     Wartość portfela
@@ -1163,7 +1163,7 @@ export default function Page() {
               </div>
 
               {/* Stock Holdings List — Read-only Preview */}
-              <div className="custom-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+              <div className="custom-scroll flex min-h-0 flex-col gap-2 overflow-y-auto pr-1">
                 {holdings.map((stock) => {
                   const val = stock.shares * stock.currentPrice
                   const profit = val - stock.invested
