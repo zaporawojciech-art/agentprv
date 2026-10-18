@@ -97,48 +97,160 @@ function getTempColorClass(temp: number): string {
   return 'text-sky-300'
 }
 
-function WeatherIcon({ code, size = 18 }: { code: number; size?: number }) {
-  if (code === 0)
+function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
+  // 0: Bezchmurnie — pełne złocisto-żółte słońce z promieniami
+  if (code === 0) {
     return (
-      <Sun
-        size={size}
-        className="fill-amber-400/30 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.55)]"
-      />
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill="none"
+        className="shrink-0 drop-shadow-[0_0_8px_rgba(250,204,21,0.65)]"
+      >
+        <g stroke="#F59E0B" strokeWidth="2.4" strokeLinecap="round">
+          <line x1="16" y1="2.5" x2="16" y2="5.5" />
+          <line x1="16" y1="26.5" x2="16" y2="29.5" />
+          <line x1="2.5" y1="16" x2="5.5" y2="16" />
+          <line x1="26.5" y1="16" x2="29.5" y2="16" />
+          <line x1="6.4" y1="6.4" x2="8.6" y2="8.6" />
+          <line x1="23.4" y1="23.4" x2="25.6" y2="25.6" />
+          <line x1="25.6" y1="6.4" x2="23.4" y2="8.6" />
+          <line x1="8.6" y1="23.4" x2="6.4" y2="25.6" />
+        </g>
+        <circle cx="16" cy="16" r="7.5" fill="#FACC15" stroke="#F59E0B" strokeWidth="1.5" />
+        <circle cx="14" cy="14" r="3" fill="#FEF08A" opacity="0.65" />
+      </svg>
     )
-  if (code === 1 || code === 2)
+  }
+
+  // 1, 2: Pogodnie — ŻÓŁTE słońce wystające zza BIAŁO-BŁĘKITNEJ chmury (wielokolorowa!)
+  if (code === 1 || code === 2) {
     return (
-      <CloudSun
-        size={size}
-        className="text-amber-300 drop-shadow-[0_0_7px_rgba(252,211,77,0.45)]"
-      />
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill="none"
+        className="shrink-0 drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
+      >
+        {/* Promienie słońca (pomarańczowo-żółte) */}
+        <g stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round">
+          <line x1="11" y1="3" x2="11" y2="5.2" />
+          <line x1="3" y1="11" x2="5.2" y2="11" />
+          <line x1="5.3" y1="5.3" x2="6.9" y2="6.9" />
+          <line x1="16.7" y1="5.3" x2="15.1" y2="6.9" />
+        </g>
+        {/* Żółta tarcza słońca */}
+        <circle cx="11.5" cy="11.5" r="5.5" fill="#FACC15" stroke="#F59E0B" strokeWidth="1.2" />
+        {/* Biało-błękitna chmura na pierwszym planie */}
+        <path
+          d="M11 25.5H23.5C26.26 25.5 28.5 23.26 28.5 20.5C28.5 17.92 26.55 15.8 24.04 15.53C23.42 11.83 20.2 9 16.3 9C12.35 9 9.1 11.9 8.54 15.68C6.25 16.22 4.5 18.27 4.5 20.75C4.5 23.37 6.63 25.5 9.25 25.5H11Z"
+          fill="#F8FAFC"
+          stroke="#93C5FD"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M9 25.5H23.5C26.26 25.5 28.5 23.26 28.5 20.5C28.5 19.8 28.35 19.13 28.08 18.52C26.8 21.2 23.9 22.5 20 22.5H7C5.8 22.5 5 21.8 4.6 21.2C4.83 23.62 6.82 25.5 9.25 25.5Z"
+          fill="#BAE6FD"
+        />
+      </svg>
     )
-  if (code === 45 || code === 48)
+  }
+
+  // 45, 48: Mgła — biało-szara chmura + turkusowe pasma mgły
+  if (code === 45 || code === 48) {
     return (
-      <CloudFog size={size} className="text-teal-300 drop-shadow-[0_0_6px_rgba(94,234,212,0.4)]" />
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
+        <path
+          d="M9.5 20H23C25.48 20 27.5 17.98 27.5 15.5C27.5 13.18 25.75 11.27 23.48 11.03C22.92 7.89 20.18 5.5 16.85 5.5C13.48 5.5 10.7 7.96 10.22 11.18C8.15 11.67 6.5 13.52 6.5 15.75C6.5 18.1 8.4 20 10.75 20H9.5Z"
+          fill="#E2E8F0"
+          stroke="#94A3B8"
+          strokeWidth="1.2"
+        />
+        <line x1="6" y1="23.5" x2="26" y2="23.5" stroke="#5EEAD4" strokeWidth="2.2" strokeLinecap="round" />
+        <line x1="9" y1="27" x2="23" y2="27" stroke="#2DD4BF" strokeWidth="2.2" strokeLinecap="round" />
+      </svg>
     )
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82))
+  }
+
+  // 51..67, 80..82: Deszcz / Przelotny deszcz — żółty akcent słońca + biało-stalowa chmura + błękitne krople deszczu
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
     return (
-      <CloudRain
-        size={size}
-        className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.55)]"
-      />
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
+        {/* Delikatne żółte słońce z tyłu dla przelotnych opadów */}
+        <circle cx="10" cy="9.5" r="4.2" fill="#FACC15" />
+        {/* Chmura deszczowa */}
+        <path
+          d="M9.5 21H23.5C26 21 28 19 28 16.5C28 14.18 26.25 12.27 23.98 12.03C23.42 8.89 20.68 6.5 17.35 6.5C13.98 6.5 11.2 8.96 10.72 12.18C8.65 12.67 7 14.52 7 16.75C7 19.1 8.9 21 11.25 21H9.5Z"
+          fill="#E2E8F0"
+          stroke="#60A5FA"
+          strokeWidth="1.3"
+        />
+        {/* Niebiesko-cyjanowe krople deszczu */}
+        <g stroke="#38BDF8" strokeWidth="2.3" strokeLinecap="round">
+          <line x1="11.5" y1="24" x2="10" y2="28" />
+          <line x1="16.5" y1="24" x2="15" y2="28" />
+          <line x1="21.5" y1="24" x2="20" y2="28" />
+        </g>
+      </svg>
     )
-  if (code >= 71 && code <= 86)
+  }
+
+  // 71..86: Śnieg — jasna chmura + lodowo-błękitne płatki śniegu
+  if (code >= 71 && code <= 86) {
     return (
-      <CloudSnow
-        size={size}
-        className="text-indigo-300 drop-shadow-[0_0_8px_rgba(165,180,252,0.55)]"
-      />
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
+        <path
+          d="M9.5 21H23.5C26 21 28 19 28 16.5C28 14.18 26.25 12.27 23.98 12.03C23.42 8.89 20.68 6.5 17.35 6.5C13.98 6.5 11.2 8.96 10.72 12.18C8.65 12.67 7 14.52 7 16.75C7 19.1 8.9 21 11.25 21H9.5Z"
+          fill="#F1F5F9"
+          stroke="#93C5FD"
+          strokeWidth="1.3"
+        />
+        <circle cx="11.5" cy="25.5" r="1.8" fill="#67E8F9" />
+        <circle cx="16.5" cy="27" r="1.8" fill="#A5F3FC" />
+        <circle cx="21.5" cy="25.5" r="1.8" fill="#67E8F9" />
+      </svg>
     )
-  if (code >= 95)
+  }
+
+  // >= 95: Burza — ciemniejsza chmura + jaskrawożółty piorun + błękitne krople
+  if (code >= 95) {
     return (
-      <CloudLightning
-        size={size}
-        className="text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.65)]"
-      />
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
+        <path
+          d="M9.5 20.5H23.5C26 20.5 28 18.5 28 16C28 13.68 26.25 11.77 23.98 11.53C23.42 8.39 20.68 6 17.35 6C13.98 6 11.2 8.46 10.72 11.68C8.65 12.17 7 14.02 7 16.25C7 18.6 8.9 20.5 11.25 20.5H9.5Z"
+          fill="#CBD5E1"
+          stroke="#64748B"
+          strokeWidth="1.3"
+        />
+        <polygon
+          points="17,18 12.5,24.5 16,24.5 14.5,30 21,22.5 17.2,22.5"
+          fill="#FACC15"
+          stroke="#F59E0B"
+          strokeWidth="0.8"
+        />
+      </svg>
     )
+  }
+
+  // 3 (Domyślnie: Pochmurno) — dwuwarstwowe chmury (błękitno-szara z tyłu + biała z przodu)
   return (
-    <Cloud size={size} className="text-sky-300 drop-shadow-[0_0_6px_rgba(125,211,252,0.4)]" />
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className="shrink-0">
+      {/* Tylna błękitno-stalowa chmura */}
+      <path
+        d="M14 19H25.5C27.7 19 29.5 17.2 29.5 15C29.5 12.95 27.95 11.27 25.95 11.05C25.45 8.2 22.98 6 20 6C16.95 6 14.43 8.28 14 11.2"
+        fill="#93C5FD"
+        opacity="0.75"
+      />
+      {/* Przednia śnieżnobiała chmura z błękitnym obrysem */}
+      <path
+        d="M9.5 24.5H22.5C25.26 24.5 27.5 22.26 27.5 19.5C27.5 16.92 25.55 14.8 23.04 14.53C22.42 10.83 19.2 8 15.3 8C11.35 8 8.1 10.9 7.54 14.68C5.25 15.22 3.5 17.27 3.5 19.75C3.5 22.37 5.63 24.5 8.25 24.5H9.5Z"
+        fill="#F8FAFC"
+        stroke="#60A5FA"
+        strokeWidth="1.3"
+      />
+    </svg>
   )
 }
 
@@ -529,8 +641,8 @@ export default function Page() {
                   currentWeather.code
                 )}`}
               >
-                <div className="flex size-10 items-center justify-center rounded-xl bg-black/30">
-                  <WeatherIcon code={currentWeather.code} size={24} />
+                <div className="flex size-11 items-center justify-center rounded-xl bg-black/35">
+                  <WeatherIcon code={currentWeather.code} size={32} />
                 </div>
                 <div>
                   <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-sky-300">
@@ -557,14 +669,14 @@ export default function Page() {
                 {hourlyForecast.map((slot) => (
                   <div
                     key={slot.hour}
-                    className={`flex min-w-[54px] shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-1.5 transition hover:scale-[1.03] ${getWeatherCardClasses(
+                    className={`flex min-w-[58px] shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-1.5 transition hover:scale-[1.03] ${getWeatherCardClasses(
                       slot.code
                     )}`}
                   >
-                    <span className="text-[11px] font-semibold tabular-nums text-zinc-200">
+                    <span className="text-[11px] font-semibold tabular-nums text-white">
                       {slot.hour}
                     </span>
-                    <WeatherIcon code={slot.code} size={18} />
+                    <WeatherIcon code={slot.code} size={26} />
                     <span
                       className={`text-xs font-bold tabular-nums ${getTempColorClass(slot.temp)}`}
                     >
