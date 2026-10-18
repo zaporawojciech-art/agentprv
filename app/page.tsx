@@ -1069,41 +1069,13 @@ export default function Page() {
           {/* Column 2: Center Timeline / Schedule View (5 cols) */}
           <div className="col-span-5 flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-5">
             <div className="mb-4 flex shrink-0 items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                    Harmonogram
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowGcalModal(true)}
-                    className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-[#1b1c1d] px-2 py-0.5 text-[10px] text-[#9a9c9e] transition hover:border-white/[0.2] hover:text-white"
-                  >
-                    <span
-                      className={`size-1.5 rounded-full ${
-                        gcalConnected ? 'bg-emerald-400' : 'bg-amber-400/80'
-                      }`}
-                    />
-                    <span className="truncate">{GOOGLE_CALENDAR_EMAIL}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => syncGoogleCalendar(selectedDate)}
-                    className="rounded-md p-1 text-[#77797c] transition hover:bg-white/[0.06] hover:text-white"
-                    title="Odśwież Kalendarz Google"
-                  >
-                    <RefreshCw size={12} className={gcalLoading ? 'animate-spin text-white' : ''} />
-                  </button>
-                </div>
-                <h2 className="mt-0.5 text-base font-semibold text-[#f3f3f1]">
-                  {view === 'Dzień' ? 'Oś czasu dnia' : 'Przegląd tygodnia'}
-                </h2>
-              </div>
+              <h2 className="text-base font-semibold text-[#f3f3f1]">
+                {view === 'Dzień' ? 'Oś czasu dnia' : 'Przegląd tygodnia'}
+              </h2>
 
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="flex shrink-0 rounded-xl border border-white/[0.08] bg-[#0d0e0f] p-1">
-                  <button
-                    onClick={() => setView('Dzień')}
+              <div className="flex shrink-0 rounded-xl border border-white/[0.08] bg-[#0d0e0f] p-1">
+                <button
+                  onClick={() => setView('Dzień')}
                     className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition ${
                       view === 'Dzień'
                         ? 'bg-[#303132] text-white shadow-sm'
@@ -1124,7 +1096,6 @@ export default function Page() {
                   </button>
                 </div>
               </div>
-            </div>
 
             {view === 'Dzień' ? (
               events.length > 0 ? (
