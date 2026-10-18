@@ -433,6 +433,9 @@ export default function Page() {
     return defaultHealthData
   })
   const [fitLoading, setFitLoading] = useState(false)
+  const [fitStatusMsg, setFitStatusMsg] = useState('')
+  const [fitNeedsActivation, setFitNeedsActivation] = useState(false)
+  const [fitActivationUrl, setFitActivationUrl] = useState('')
 
   const [showComposer, setShowComposer] = useState(false)
   const [newTask, setNewTask] = useState('')
@@ -538,6 +541,13 @@ export default function Page() {
       })
       if (!res.ok) return
       const json = await res.json()
+      if (json.message) setFitStatusMsg(json.message)
+      if (json.needsActivation) {
+        setFitNeedsActivation(true)
+        setFitActivationUrl(json.activationUrl || '')
+      } else if (json.live) {
+        setFitNeedsActivation(false)
+      }
       if (json.data) {
         setHealthData(json.data)
         if (typeof window !== 'undefined') {
@@ -675,6 +685,7 @@ export default function Page() {
       localStorage.setItem('gcal_client_id', googleClientIdInput.trim())
     }
     syncGoogleCalendar(selectedDate, icalInput.trim(), oauthTokenInput.trim())
+    syncGoogleFit(oauthTokenInput.trim())
     setShowGcalModal(false)
   }
 
@@ -894,16 +905,32 @@ export default function Page() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => syncGoogleFit()}
+                    onClick={() => {
+                      if (!healthData.live) {
+                        setShowGcalModal(true)
+                      } else {
+                        syncGoogleFit()
+                      }
+                    }}
                     className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] text-[#9a9c9e] transition hover:border-white/[0.2] hover:text-white"
-                    title="Kliknij, aby odświeżyć Google Fit"
+                    title={
+                      healthData.live
+                        ? 'Google Fit połączony na żywo (kliknij, aby odświeżyć)'
+                        : 'Kliknij, aby połączyć konto Google Fit'
+                    }
                   >
                     <span
                       className={`size-1.5 rounded-full ${
-                        healthData.live ? 'bg-emerald-400' : 'bg-emerald-400/90'
+                        healthData.live ? 'bg-emerald-400' : 'bg-amber-400'
                       }`}
                     />
-                    <span>{fitLoading ? 'Synchronizacja...' : 'Google Fit'}</span>
+                    <span>
+                      {fitLoading
+                        ? 'Synchronizacja...'
+                        : healthData.live
+                          ? 'Live Google Fit'
+                          : 'Połącz Google Fit'}
+                    </span>
                     <RefreshCw
                       size={10}
                       className={fitLoading ? 'animate-spin text-white' : 'text-[#77797c]'}
@@ -1515,9 +1542,36 @@ export default function Page() {
               </button>
             </div>
 
-            {gcalStatusMsg && (
+            {/* Komunikat o konieczności włączenia Fitness API w Google Cloud */}
+            {fitNeedsActivation && (
+              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200">
+                <p className="font-semibold text-white">Wymagana aktywacja Fitness API w Google Cloud</p>
+                <p className="mt-1 text-amber-300/80">
+                  W Twoim projekcie Google Cloud (ID: 830194892733) usługa Fitness API nie jest jeszcze włączona.
+                </p>
+                <a
+                  href={
+                    fitActivationUrl ||
+                    'https://console.developers.google.com/apis/api/fitness.googleapis.com/overview?project=830194892733'
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-amber-300"
+                >
+                  Włącz Fitness API jednym kliknięciem ↗
+                </a>
+              </div>
+            )}
+
+            {gcalStatusMsg && !fitNeedsActivation && (
               <div className="mb-4 rounded-xl border border-white/[0.08] bg-[#121314] px-3.5 py-2.5 text-xs text-[#bfc0be]">
                 {gcalStatusMsg}
+              </div>
+            )}
+
+            {fitStatusMsg && !fitNeedsActivation && (
+              <div className="mb-4 rounded-xl border border-white/[0.08] bg-[#121314] px-3.5 py-2.5 text-xs text-[#9a9c9e]">
+                <span className="font-medium text-white">Status Google Fit:</span> {fitStatusMsg}
               </div>
             )}
 
@@ -1559,6 +1613,23 @@ export default function Page() {
                     Autoryzuj z Google
                   </button>
                 </div>
+              </div>
+
+              {/* Opcja 3: Token dostępowy OAuth Bearer */}
+              <div className="border-t border-white/[0.07] pt-3.5">
+                <label className="mb-1.5 block text-xs font-medium text-[#d7d7d5]">
+                  3. Lub wklej bezpośredni token dostępowy (Bearer Token)
+                </label>
+                <input
+                  type="password"
+                  value={oauthTokenInput}
+                  onChange={(e) => setOauthTokenInput(e.target.value)}
+                  placeholder="ya29.a0AfH6S..."
+                  className="w-full rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2 text-xs text-white outline-none placeholder:text-[#55575a] focus:border-white/[0.3]"
+                />
+                <p className="mt-1 text-[11px] text-[#6f7174]">
+                  Wygenerowany np. w Google OAuth 2.0 Playground dla konta {GOOGLE_ACCOUNT_EMAIL}
+                </p>
               </div>
             </div>
 

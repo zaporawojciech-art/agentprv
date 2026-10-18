@@ -149,15 +149,15 @@ export async function GET(request: NextRequest) {
 
   if (!accessToken) {
     return NextResponse.json({
-      connected: true,
+      connected: false,
       live: false,
       account: TARGET_FITNESS_EMAIL,
       source: 'Google Fit',
-      message: `Google Fit (${TARGET_FITNESS_EMAIL}) — tryb zsynchronizowany`,
+      message: `Wymagana autoryzacja konta Google (${TARGET_FITNESS_EMAIL}). Użyj przycisku autoryzacji w ustawieniach.`,
       data: {
         ...DEFAULT_FIT_DATA,
         account: TARGET_FITNESS_EMAIL,
-        source: 'Google Fit',
+        source: 'Google Fit (Wersja demonstracyjna)',
         lastSyncTime: currentTimeStr,
         live: false,
       },
@@ -191,16 +191,35 @@ export async function GET(request: NextRequest) {
     )
 
     if (!aggregateRes.ok) {
+      let errDetail = `Błąd Google Fitness API (kod HTTP: ${aggregateRes.status})`
+      let needsActivation = false
+      const activationUrl =
+        'https://console.developers.google.com/apis/api/fitness.googleapis.com/overview?project=830194892733'
+
+      try {
+        const errJson = await aggregateRes.json()
+        if (errJson?.error?.message) {
+          errDetail = errJson.error.message
+          if (errDetail.includes('Fitness API has not been used') || errDetail.includes('disabled')) {
+            needsActivation = true
+            errDetail =
+              'Fitness API nie jest włączone w Twoim projekcie Google Cloud. Kliknij poniższy link, aby je włączyć jednym kliknięciem.'
+          }
+        }
+      } catch {}
+
       return NextResponse.json({
-        connected: true,
+        connected: false,
         live: false,
         account: TARGET_FITNESS_EMAIL,
         source: 'Google Fit',
-        message: `Google Fit autoryzowany (kod HTTP: ${aggregateRes.status})`,
+        message: errDetail,
+        needsActivation,
+        activationUrl,
         data: {
           ...DEFAULT_FIT_DATA,
           account: TARGET_FITNESS_EMAIL,
-          source: 'Google Fit',
+          source: 'Google Fit (Wymaga aktywacji/logowania)',
           lastSyncTime: currentTimeStr,
           live: false,
         },
