@@ -696,7 +696,7 @@ export default function Page() {
                     slot.isTomorrow && (idx === 0 || !hourlyForecast[idx - 1]?.isTomorrow)
                   return (
                     <div
-                      key={slot.id}
+                      key={`${slot.id ?? slot.hour}-${idx}`}
                       className={`flex min-w-[58px] shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-1.5 transition hover:scale-[1.03] ${getWeatherCardClasses(
                         slot.code
                       )}`}
