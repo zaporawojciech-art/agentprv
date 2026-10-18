@@ -106,20 +106,22 @@ interface GoogleFitData {
 }
 
 const defaultHealthData: GoogleFitData = {
-  steps: 8420,
+  steps: 0,
   stepsGoal: 10000,
-  calories: 540,
+  calories: 0,
   caloriesGoal: 600,
-  activeMinutes: 45,
+  activeMinutes: 0,
   activeMinutesGoal: 30,
-  heartRate: 64,
-  heartRateResting: 58,
-  distanceKm: 6.2,
-  sleepDuration: '7h 35m',
-  sleepScore: 86,
+  heartRate: 0,
+  heartRateResting: 0,
+  distanceKm: 0,
+  sleepDuration: '--',
+  sleepScore: 0,
   source: 'Google Fit',
   account: GOOGLE_FIT_EMAIL,
+  live: false,
 }
+
 
 
 function getWeatherLabel(code: number): string {
@@ -295,24 +297,6 @@ function WeatherIcon({ code, size = 26 }: { code: number; size?: number }) {
   )
 }
 
-const weekDays = [
-  { day: 'Pon', date: 12, count: 4, focus: 'Porządek i plan' },
-  { day: 'Wt', date: 13, count: 5, focus: 'Spotkania zespołu' },
-  { day: 'Śr', date: 14, count: 5, focus: 'Praca głęboka · Atlas' },
-  { day: 'Czw', date: 15, count: 3, focus: 'Warsztaty produktowe' },
-  { day: 'Pt', date: 16, count: 4, focus: 'Podsumowanie tygodnia' },
-  { day: 'Sob', date: 17, count: 2, focus: 'Odpoczynek i dom' },
-  { day: 'Nd', date: 18, count: 1, focus: 'Spokojny wieczór' },
-]
-
-const initialEvents: CalendarEventItem[] = [
-  { time: '08:30', title: 'Poranny spacer', meta: 'Rutyna · 30 min', type: 'routine', active: true },
-  { time: '10:00', title: 'Praca głęboka', meta: 'Projekt Atlas · 2 godz.', type: 'work', active: false },
-  { time: '12:30', title: 'Lunch z Martą', meta: 'Bistro Młyńska · 1 godz.', type: 'personal', active: false },
-  { time: '15:00', title: 'Odebrać paczkę', meta: 'Zadanie · do wykonania', type: 'task', active: false },
-  { time: '18:30', title: 'Wieczorna rutyna', meta: 'Dom · 45 min', type: 'routine', active: false },
-]
-
 const initialHoldings: StockHolding[] = [
   {
     id: '1',
@@ -358,9 +342,10 @@ const calendarCells = [
 ]
 
 export default function Page() {
-  const [selectedDate, setSelectedDate] = useState(18)
+  const [selectedDate, setSelectedDate] = useState(() => new Date().getDate())
   const [view, setView] = useState<'Dzień' | 'Tydzień'>('Dzień')
-  const [events, setEvents] = useState<CalendarEventItem[]>(initialEvents)
+  const [events, setEvents] = useState<CalendarEventItem[]>([])
+  const [calendarLoaded, setCalendarLoaded] = useState(false)
   const [allMonthEvents, setAllMonthEvents] = useState<CalendarEventItem[]>([])
   
   // Portfel akcji (drobne kwoty, ułamkowe akcje, ETF)
@@ -405,6 +390,7 @@ export default function Page() {
     }
     return defaultHealthData
   })
+  const [healthLoaded, setHealthLoaded] = useState(false)
   const [fitLoading, setFitLoading] = useState(false)
   const [fitStatusMsg, setFitStatusMsg] = useState('')
   const [fitNeedsActivation, setFitNeedsActivation] = useState(false)
@@ -477,11 +463,15 @@ export default function Page() {
           setGcalStatusMsg(`Połączono z ${GOOGLE_CALENDAR_EMAIL}`)
           if (Array.isArray(data.allMonthEvents)) {
             setAllMonthEvents(data.allMonthEvents)
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('agentprv_gcal_all_month', JSON.stringify(data.allMonthEvents))
+            }
           }
-          if (Array.isArray(data.events) && data.events.length > 0) {
+          if (Array.isArray(data.events)) {
             setEvents(data.events)
-          } else if (Array.isArray(data.events)) {
-            setEvents([])
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`agentprv_gcal_events_${dateStr}`, JSON.stringify(data.events))
+            }
           }
         } else {
           setGcalConnected(false)
@@ -491,6 +481,7 @@ export default function Page() {
         // Ignoruj błędy sieciowe w trybie offline
       } finally {
         setGcalLoading(false)
+        setCalendarLoaded(true)
       }
     },
     []
@@ -525,6 +516,7 @@ export default function Page() {
         }
         if (json.data) {
           setHealthData(json.data)
+          setHealthLoaded(true)
           if (typeof window !== 'undefined') {
             localStorage.setItem('agentprv_google_fit_health', JSON.stringify(json.data))
           }
@@ -533,6 +525,7 @@ export default function Page() {
         // offline fallback
       } finally {
         setFitLoading(false)
+        setHealthLoaded(true)
       }
     },
     [selectedDate]
@@ -549,6 +542,38 @@ export default function Page() {
       setIcalInput(savedIcal)
       setOauthTokenInput(savedToken)
       setGoogleClientIdInput(savedClientId)
+
+      // Natychmiast przywróć dane kalendarza z cache localStorage, aby uniknąć migotania
+      try {
+        const year = new Date().getFullYear()
+        const month = String(new Date().getMonth() + 1).padStart(2, '0')
+        const dateStr = `${year}-${month}-${String(selectedDate).padStart(2, '0')}`
+        const savedEvents = localStorage.getItem(`agentprv_gcal_events_${dateStr}`)
+        if (savedEvents) {
+          const parsed = JSON.parse(savedEvents)
+          if (Array.isArray(parsed)) {
+            setEvents(parsed)
+            setCalendarLoaded(true)
+          }
+        }
+        const savedAllMonth = localStorage.getItem('agentprv_gcal_all_month')
+        if (savedAllMonth) {
+          const parsedAll = JSON.parse(savedAllMonth)
+          if (Array.isArray(parsedAll)) setAllMonthEvents(parsedAll)
+        }
+      } catch {}
+
+      // Natychmiast przywróć dane zdrowia z cache localStorage, aby uniknąć migotania
+      try {
+        const savedHealth = localStorage.getItem('agentprv_google_fit_health')
+        if (savedHealth) {
+          const parsedHealth = JSON.parse(savedHealth)
+          if (parsedHealth && (parsedHealth.steps > 0 || parsedHealth.calories > 0 || parsedHealth.live)) {
+            setHealthData(parsedHealth)
+            setHealthLoaded(true)
+          }
+        }
+      } catch {}
     }
     syncGoogleCalendar(selectedDate)
     syncGoogleFit(selectedDate)
@@ -817,7 +842,7 @@ export default function Page() {
             {/* Greeting */}
             <div className="shrink-0">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                Dzisiaj · {selectedDate} października ·{' '}
+                Dzisiaj · {selectedDate} {new Date().toLocaleDateString('pl-PL', { month: 'long' })} ·{' '}
                 <span suppressHydrationWarning>{currentTime || '--:--'}</span>
               </p>
               <h1 className="mt-0.5 text-2xl font-semibold tracking-[-0.04em] text-[#f3f3f1]">
@@ -964,149 +989,193 @@ export default function Page() {
                 </div>
 
                 {/* Wskaźniki Ruchu (Kroki, Kalorie, Czas Aktywności) */}
-                <div className="flex flex-col gap-2.5">
-                  {/* Kroki */}
-                  <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-1.5 font-medium text-white">
-                        <Footprints size={14} className="text-sky-400" />
-                        <span>Kroki</span>
+                {!healthLoaded && fitLoading ? (
+                  <div className="flex flex-col gap-2.5 animate-pulse">
+                    <div className="h-[80px] rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="h-3.5 w-16 rounded bg-white/[0.06]" />
+                        <div className="h-3.5 w-24 rounded bg-white/[0.06]" />
                       </div>
-                      <div className="flex items-baseline gap-1 text-[11px] tabular-nums text-[#8e9093]">
-                        <span className="font-semibold text-white">
-                          {healthData.steps.toLocaleString('pl-PL')}
-                        </span>
-                        <span>/ {healthData.stepsGoal.toLocaleString('pl-PL')}</span>
-                        <span className="font-semibold text-sky-400">
-                          ({Math.round((healthData.steps / healthData.stepsGoal) * 100)}%)
-                        </span>
+                      <div className="mt-3 h-1.5 w-full rounded-full bg-white/[0.04]" />
+                      <div className="mt-2.5 flex justify-between">
+                        <div className="h-2.5 w-20 rounded bg-white/[0.04]" />
+                        <div className="h-2.5 w-20 rounded bg-white/[0.04]" />
                       </div>
                     </div>
-                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
-                      <div
-                        className="h-full rounded-full bg-sky-400 transition-all duration-500"
-                        style={{
-                          width: `${Math.min(
-                            100,
-                            Math.round((healthData.steps / healthData.stepsGoal) * 100)
-                          )}%`,
-                        }}
-                      />
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="h-[88px] rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                        <div className="h-3.5 w-16 rounded bg-white/[0.06]" />
+                        <div className="mt-2 h-5 w-20 rounded bg-white/[0.06]" />
+                        <div className="mt-2.5 h-1.5 w-full rounded-full bg-white/[0.04]" />
+                      </div>
+                      <div className="h-[88px] rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                        <div className="h-3.5 w-16 rounded bg-white/[0.06]" />
+                        <div className="mt-2 h-5 w-16 rounded bg-white/[0.06]" />
+                        <div className="mt-2.5 h-1.5 w-full rounded-full bg-white/[0.04]" />
+                      </div>
                     </div>
-                    <div className="mt-1.5 flex justify-between text-[10px] text-[#6f7174]">
-                      <span>Dystans: {healthData.distanceKm} km</span>
-                      <span>
-                        Pozostało:{' '}
-                        {(healthData.stepsGoal - healthData.steps).toLocaleString('pl-PL')}
-                      </span>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="h-[52px] rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5 flex items-center gap-2.5">
+                        <div className="size-8 rounded-lg bg-white/[0.06]" />
+                        <div className="space-y-1.5 flex-1">
+                          <div className="h-3.5 w-14 rounded bg-white/[0.06]" />
+                          <div className="h-2.5 w-20 rounded bg-white/[0.04]" />
+                        </div>
+                      </div>
+                      <div className="h-[52px] rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5 flex items-center gap-2.5">
+                        <div className="size-8 rounded-lg bg-white/[0.06]" />
+                        <div className="space-y-1.5 flex-1">
+                          <div className="h-3.5 w-14 rounded bg-white/[0.06]" />
+                          <div className="h-2.5 w-20 rounded bg-white/[0.04]" />
+                        </div>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Kalorie & Czas Ruchu */}
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {/* Spalone kalorie */}
+                ) : (
+                  <div className="flex flex-col gap-2.5">
+                    {/* Kroki */}
                     <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-medium text-white">
-                          <Flame size={14} className="text-amber-400" />
-                          <span>Kalorie</span>
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5 font-medium text-white">
+                          <Footprints size={14} className="text-sky-400" />
+                          <span>Kroki</span>
                         </div>
-                        <span className="text-[10px] font-bold text-amber-400">
-                          {Math.round((healthData.calories / healthData.caloriesGoal) * 100)}%
-                        </span>
-                      </div>
-                      <div className="mt-1.5">
-                        <p className="text-lg font-bold tabular-nums leading-none text-white">
-                          {healthData.calories}{' '}
-                          <span className="text-xs font-normal text-[#8e9093]">kcal</span>
-                        </p>
-                        <p className="mt-1 text-[10px] text-[#6f7174]">
-                          cel: {healthData.caloriesGoal} kcal
-                        </p>
+                        <div className="flex items-baseline gap-1 text-[11px] tabular-nums text-[#8e9093]">
+                          <span className="font-semibold text-white">
+                            {healthData.steps.toLocaleString('pl-PL')}
+                          </span>
+                          <span>/ {healthData.stepsGoal.toLocaleString('pl-PL')}</span>
+                          <span className="font-semibold text-sky-400">
+                            ({Math.round((healthData.steps / healthData.stepsGoal) * 100)}%)
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
                         <div
-                          className="h-full rounded-full bg-amber-400 transition-all duration-500"
+                          className="h-full rounded-full bg-sky-400 transition-all duration-500"
                           style={{
                             width: `${Math.min(
                               100,
-                              Math.round((healthData.calories / healthData.caloriesGoal) * 100)
+                              Math.round((healthData.steps / healthData.stepsGoal) * 100)
                             )}%`,
                           }}
                         />
                       </div>
-                    </div>
-
-                    {/* Aktywność / Trening */}
-                    <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-medium text-white">
-                          <Activity size={14} className="text-emerald-400" />
-                          <span>Aktywność</span>
-                        </div>
-                        <span className="text-[10px] font-bold text-emerald-400">
-                          {Math.round((healthData.activeMinutes / healthData.activeMinutesGoal) * 100)}%
+                      <div className="mt-1.5 flex justify-between text-[10px] text-[#6f7174]">
+                        <span>Dystans: {healthData.distanceKm} km</span>
+                        <span>
+                          Pozostało:{' '}
+                          {Math.max(0, healthData.stepsGoal - healthData.steps).toLocaleString('pl-PL')}
                         </span>
                       </div>
-                      <div className="mt-1.5">
-                        <p className="text-lg font-bold tabular-nums leading-none text-white">
-                          {healthData.activeMinutes}{' '}
-                          <span className="text-xs font-normal text-[#8e9093]">min</span>
-                        </p>
-                        <p className="mt-1 text-[10px] text-[#6f7174]">
-                          cel: {healthData.activeMinutesGoal} min
-                        </p>
+                    </div>
+
+                    {/* Kalorie & Czas Ruchu */}
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {/* Spalone kalorie */}
+                      <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-white">
+                            <Flame size={14} className="text-amber-400" />
+                            <span>Kalorie</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-amber-400">
+                            {Math.round((healthData.calories / healthData.caloriesGoal) * 100)}%
+                          </span>
+                        </div>
+                        <div className="mt-1.5">
+                          <p className="text-lg font-bold tabular-nums leading-none text-white">
+                            {healthData.calories}{' '}
+                            <span className="text-xs font-normal text-[#8e9093]">kcal</span>
+                          </p>
+                          <p className="mt-1 text-[10px] text-[#6f7174]">
+                            cel: {healthData.caloriesGoal} kcal
+                          </p>
+                        </div>
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
+                          <div
+                            className="h-full rounded-full bg-amber-400 transition-all duration-500"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.round((healthData.calories / healthData.caloriesGoal) * 100)
+                              )}%`,
+                            }}
+                          />
+                        </div>
                       </div>
-                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
-                        <div
-                          className="h-full rounded-full bg-emerald-400 transition-all duration-500"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              Math.round(
-                                (healthData.activeMinutes / healthData.activeMinutesGoal) * 100
-                              )
-                            )}%`,
-                          }}
-                        />
+
+                      {/* Aktywność / Trening */}
+                      <div className="rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-white">
+                            <Activity size={14} className="text-emerald-400" />
+                            <span>Aktywność</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-emerald-400">
+                            {Math.round((healthData.activeMinutes / healthData.activeMinutesGoal) * 100)}%
+                          </span>
+                        </div>
+                        <div className="mt-1.5">
+                          <p className="text-lg font-bold tabular-nums leading-none text-white">
+                            {healthData.activeMinutes}{' '}
+                            <span className="text-xs font-normal text-[#8e9093]">min</span>
+                          </p>
+                          <p className="mt-1 text-[10px] text-[#6f7174]">
+                            cel: {healthData.activeMinutesGoal} min
+                          </p>
+                        </div>
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#25272a]">
+                          <div
+                            className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.round(
+                                  (healthData.activeMinutes / healthData.activeMinutesGoal) * 100
+                                )
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Biometria (Tętno Google Fit & Sen Google Fit) */}
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {/* Tętno */}
+                      <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400">
+                          <Heart size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold tabular-nums leading-none text-white">
+                            {healthData.heartRate > 0 ? healthData.heartRate : '--'}{' '}
+                            <span className="text-[10px] font-normal text-[#8e9093]">bpm</span>
+                          </p>
+                          <p className="mt-1 text-[10px] text-[#6f7174]">
+                            {healthData.heartRateResting > 0 ? `Spoczynkowe ${healthData.heartRateResting}` : 'Google Fit'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Sen */}
+                      <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+                          <Moon size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold tabular-nums leading-none text-white">
+                            {healthData.sleepDuration}
+                          </p>
+                          <p className="mt-1 text-[10px] text-[#6f7174]">
+                            Google Fit Sen
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Biometria (Tętno Google Fit & Sen Google Fit) */}
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {/* Tętno */}
-                    <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400">
-                        <Heart size={15} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold tabular-nums leading-none text-white">
-                          {healthData.heartRate}{' '}
-                          <span className="text-[10px] font-normal text-[#8e9093]">bpm</span>
-                        </p>
-                        <p className="mt-1 text-[10px] text-[#6f7174]">
-                          Spoczynkowe {healthData.heartRateResting}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Sen */}
-                    <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.06] bg-[#1b1c1e] p-2.5">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
-                        <Moon size={15} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold tabular-nums leading-none text-white">
-                          {healthData.sleepDuration}
-                        </p>
-                        <p className="mt-1 text-[10px] text-[#6f7174]">
-                          Google Fit Sen
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
 
@@ -1115,7 +1184,9 @@ export default function Page() {
               <div className="mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-[#f3f3f1]">
                   <CalendarDays size={13} className="text-[#8e9092]" />
-                  <span>Październik 2026</span>
+                  <span className="capitalize">
+                    {new Date().toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
@@ -1128,7 +1199,7 @@ export default function Page() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSelectedDate(18)}
+                    onClick={() => setSelectedDate(new Date().getDate())}
                     className="rounded-md px-2 py-0.5 text-[10px] font-medium text-[#8e9092] transition hover:bg-white/[0.06] hover:text-white"
                   >
                     Dziś
@@ -1154,7 +1225,9 @@ export default function Page() {
               {/* Siatka dni */}
               <div className="grid grid-cols-7 gap-0.5">
                 {calendarCells.map((date, index) => {
-                  const hasEvent = date ? datesWithGoogleEvents.has(date) || date === 18 : false
+                  const todayDay = new Date().getDate()
+                  const isToday = date === todayDay
+                  const hasEvent = date ? datesWithGoogleEvents.has(date) : false
                   const isSelected = date === selectedDate
                   return (
                     <button
@@ -1165,7 +1238,7 @@ export default function Page() {
                       className={`relative flex h-6 items-center justify-center rounded-md text-[11px] tabular-nums transition ${
                         isSelected
                           ? 'bg-[#eeeeec] font-bold text-[#171819] shadow-sm'
-                          : date === 18
+                          : isToday
                           ? 'bg-white/[0.08] font-semibold text-white'
                           : 'text-[#888a8c] hover:bg-white/[0.06] hover:text-white'
                       } ${
@@ -1182,7 +1255,7 @@ export default function Page() {
 
               {/* Status Google Calendar */}
               <div className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-1.5 text-[10px] text-[#737578]">
-                <span>Wybrany dzień: {selectedDate} paź</span>
+                <span>Wybrany dzień: {selectedDate} {new Date().toLocaleDateString('pl-PL', { month: 'short' })}</span>
                 <button
                   type="button"
                   onClick={() => setShowGcalModal(true)}
@@ -1231,7 +1304,22 @@ export default function Page() {
               </div>
 
             {view === 'Dzień' ? (
-              events.length > 0 ? (
+              !calendarLoaded && gcalLoading ? (
+                <div className="flex min-h-0 flex-1 flex-col gap-3 py-1 pl-2 pr-1">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex gap-4 border-l border-white/[0.08] pb-3.5 pl-5 animate-pulse">
+                      <div className="w-12 h-4 rounded bg-white/[0.06] mt-2.5 shrink-0" />
+                      <div className="flex flex-1 items-center justify-between rounded-xl border border-white/[0.06] bg-[#1b1c1d] px-4 py-3">
+                        <div className="space-y-1.5 flex-1">
+                          <div className="h-4 w-36 rounded bg-white/[0.06]" />
+                          <div className="h-3 w-24 rounded bg-white/[0.04]" />
+                        </div>
+                        <div className="size-8 rounded-full bg-white/[0.05]" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : events.length > 0 ? (
                 <div className="custom-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto pl-2 pr-1">
                   {events.map((event, index) => (
                     <div
@@ -1290,7 +1378,7 @@ export default function Page() {
               ) : (
                 <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] p-6 text-center">
                   <p className="text-sm font-medium text-[#bfc0be]">
-                    Brak zaplanowanych wydarzeń na {selectedDate} października
+                    Brak zaplanowanych wydarzeń na {selectedDate} {new Date().toLocaleDateString('pl-PL', { month: 'long' })}
                   </p>
                   <p className="mt-1 text-xs text-[#6f7174]">
                     Kalendarz Google ({GOOGLE_CALENDAR_EMAIL}) nie zawiera wpisów w tym dniu.
@@ -1495,7 +1583,7 @@ export default function Page() {
               <div>
                 <h2 className="font-semibold text-[#f3f3f1]">Dodaj do planu dnia</h2>
                 <p className="text-[11px] text-[#77797c]">
-                  {selectedDate} października · {GOOGLE_CALENDAR_EMAIL}
+                  {selectedDate} {new Date().toLocaleDateString('pl-PL', { month: 'long' })} · {GOOGLE_CALENDAR_EMAIL}
                 </p>
               </div>
               <button
