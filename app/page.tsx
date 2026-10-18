@@ -13,18 +13,15 @@ import {
   CloudRain,
   CloudSnow,
   CloudSun,
-  Command,
   DollarSign,
   Link2,
   ListTodo,
   MapPin,
   Maximize2,
-  Mic,
   Minimize2,
   MoreHorizontal,
   Plus,
   RefreshCw,
-  Sparkles,
   Sun,
   SunMedium,
   TrendingDown,
@@ -366,8 +363,6 @@ export default function Page() {
   const [newTaskTime, setNewTaskTime] = useState('20:00')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [ambientDim, setAmbientDim] = useState(false)
-  const [isListening, setIsListening] = useState(false)
-  const [assistantPrompt, setAssistantPrompt] = useState('„Ile wart jest mój portfel?”')
   const [currentTime, setCurrentTime] = useState('21:30')
   const [currentWeather, setCurrentWeather] = useState<{ temp: number; code: number }>({
     temp: 11,
@@ -1105,10 +1100,10 @@ export default function Page() {
             )}
           </div>
 
-          {/* Column 3: Portfel Akcji & Asystent (3 cols) */}
-          <aside className="col-span-3 flex min-h-0 flex-col gap-4">
+          {/* Column 3: Portfel Akcji (3 cols) */}
+          <aside className="col-span-3 flex min-h-0 flex-col">
             {/* Portfolio Card — Czysty podgląd portfela */}
-            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-4">
+            <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-5">
               {/* Header */}
               <div className="mb-3.5 flex shrink-0 items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1231,49 +1226,6 @@ export default function Page() {
                   )
                 })}
               </div>
-            </div>
-
-            {/* AI Voice Assistant Card */}
-            <div className="shrink-0 rounded-2xl border border-white/[0.08] bg-[#151617] p-4">
-              <div className="flex items-center justify-between text-[#9a9c9e]">
-                <div className="flex items-center gap-2">
-                  <Mic size={16} className={isListening ? 'animate-pulse text-white' : ''} />
-                  <span className="text-xs font-medium">Asystent osobisty & finanse</span>
-                </div>
-                <Sparkles size={14} className="text-[#6f7174]" />
-              </div>
-
-              <p className="mt-2.5 text-sm leading-relaxed text-[#9a9c9e]">{assistantPrompt}</p>
-
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {[
-                  '„Ile wart jest mój portfel?”',
-                  '„Zainwestuj 50 zł w Vanguard All-World”',
-                  '„Zaplanuj mój dzień”',
-                ].map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => setAssistantPrompt(suggestion)}
-                    className="rounded-lg border border-white/[0.06] bg-[#1b1c1d] px-2.5 py-1 text-[11px] text-[#77797c] transition hover:border-white/[0.15] hover:text-[#bfc0be]"
-                  >
-                    {suggestion.replace(/[„”]/g, '')}
-                  </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsListening((prev) => !prev)}
-                className={`mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-xs font-medium transition active:scale-[0.99] ${
-                  isListening
-                    ? 'bg-[#e9e9e7] text-[#171819]'
-                    : 'bg-[#252627] text-[#bfc0be] hover:bg-[#303132]'
-                }`}
-              >
-                <Command size={14} />
-                <span>{isListening ? 'Słucham… dotknij, aby zakończyć' : 'Naciśnij, aby mówić'}</span>
-              </button>
             </div>
           </aside>
         </section>
