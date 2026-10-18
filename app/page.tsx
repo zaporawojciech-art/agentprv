@@ -816,13 +816,23 @@ export default function Page() {
               )
             ) : (
               <div className="custom-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
-                {weekDays.map((item) => {
-                  const isSelected = item.date === selectedDate
+                {Array.from({ length: 7 }, (_, idx) => {
+                  const baseDay = Math.min(25, Math.max(1, selectedDate - ((selectedDate - 1) % 7)))
+                  const dayNum = baseDay + idx
+                  const dayNames = ['Pon', 'Wt', 'Śr', 'Czw', 'Pt', 'Sob', 'Nd']
+                  const dayEvents = allMonthEvents.filter(
+                    (ev) => ev.dateStr && Number(ev.dateStr.split('-')[2]) === dayNum
+                  )
+                  const summaryText =
+                    dayEvents.length > 0
+                      ? dayEvents.map((e) => `${e.time} ${e.title}`).join(' · ')
+                      : 'Brak zaplanowanych wydarzeń'
+                  const isSelected = dayNum === selectedDate
                   return (
                     <button
-                      key={item.date}
+                      key={dayNum}
                       onClick={() => {
-                        setSelectedDate(item.date)
+                        setSelectedDate(dayNum)
                         setView('Dzień')
                       }}
                       className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
@@ -831,26 +841,30 @@ export default function Page() {
                           : 'border-white/[0.07] bg-[#1b1c1d] text-[#bfc0be] hover:border-white/[0.14]'
                       }`}
                     >
-                      <div className="flex items-center gap-3.5">
+                      <div className="flex min-w-0 flex-1 items-center gap-3.5 pr-3">
                         <div
-                          className={`flex size-10 flex-col items-center justify-center rounded-lg text-xs font-semibold ${
+                          className={`flex size-10 shrink-0 flex-col items-center justify-center rounded-lg text-xs font-semibold ${
                             isSelected
                               ? 'bg-[#eeeeec] text-[#171819]'
                               : 'bg-[#151617] text-[#9a9c9e]'
                           }`}
                         >
-                          <span className="text-[10px] uppercase opacity-75">{item.day}</span>
-                          <span>{item.date}</span>
+                          <span className="text-[10px] uppercase opacity-75">
+                            {dayNames[idx]}
+                          </span>
+                          <span>{dayNum}</span>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-[#ededeb]">{item.focus}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-[#ededeb]">
+                            {summaryText}
+                          </p>
                           <p className="mt-0.5 text-xs text-[#6f7174]">
                             {GOOGLE_CALENDAR_EMAIL} · kliknij, aby otworzyć dzień
                           </p>
                         </div>
                       </div>
-                      <span className="rounded-lg bg-white/[0.06] px-2.5 py-1 text-xs tabular-nums text-[#9a9c9e]">
-                        {item.count} wyd.
+                      <span className="shrink-0 rounded-lg bg-white/[0.06] px-2.5 py-1 text-xs tabular-nums text-[#9a9c9e]">
+                        {dayEvents.length} wyd.
                       </span>
                     </button>
                   )
