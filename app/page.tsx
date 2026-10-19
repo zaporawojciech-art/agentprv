@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   CalendarDays,
@@ -354,21 +354,26 @@ export default function Page() {
   const [allMonthEvents, setAllMonthEvents] = useState<CalendarEventItem[]>([])
   
   // Portfel akcji (drobne kwoty, ułamkowe akcje, ETF)
-  const [holdings, setHoldings] = useState<StockHolding[]>(() => {
+  const [holdings, setHoldings] = useState<StockHolding[]>(initialHoldings)
+  const holdingsLoadedRef = useRef(false)
+
+  useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('agentprv_stocks_holdings')
       if (saved) {
         try {
           const parsed = JSON.parse(saved)
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setHoldings(parsed)
+          }
         } catch {}
       }
+      holdingsLoadedRef.current = true
     }
-    return initialHoldings
-  })
+  }, [])
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && holdingsLoadedRef.current) {
       localStorage.setItem('agentprv_stocks_holdings', JSON.stringify(holdings))
     }
   }, [holdings])
@@ -382,19 +387,7 @@ export default function Page() {
   }, [holdings])
 
   // Dane ruchu i zdrowia z Google Fit (zaporawojciech@gmail.com)
-  const [healthData, setHealthData] = useState<GoogleFitData>(() => {
-    if (typeof window !== 'undefined') {
-      const saved =
-        localStorage.getItem('agentprv_google_fit_health') ||
-        localStorage.getItem('agentprv_huawei_health')
-      if (saved) {
-        try {
-          return { ...defaultHealthData, ...JSON.parse(saved) }
-        } catch {}
-      }
-    }
-    return defaultHealthData
-  })
+  const [healthData, setHealthData] = useState<GoogleFitData>(defaultHealthData)
   const [healthLoaded, setHealthLoaded] = useState(false)
   const [fitLoading, setFitLoading] = useState(false)
   const [fitStatusMsg, setFitStatusMsg] = useState('')
@@ -539,7 +532,7 @@ export default function Page() {
         if (json.data) {
           setHealthData(json.data)
           setHealthLoaded(true)
-          if (typeof window !== 'undefined') {
+          if (typeof window !== 'undefined' && json.live) {
             localStorage.setItem('agentprv_google_fit_health', JSON.stringify(json.data))
           }
         }
@@ -585,12 +578,12 @@ export default function Page() {
         }
       } catch {}
 
-      // Natychmiast przywróć dane zdrowia z cache localStorage, aby uniknąć migotania
+      // Natychmiast przywróć dane zdrowia z cache localStorage, jeśli pochodzą z live sync
       try {
         const savedHealth = localStorage.getItem('agentprv_google_fit_health')
         if (savedHealth) {
           const parsedHealth = JSON.parse(savedHealth)
-          if (parsedHealth && (parsedHealth.steps > 0 || parsedHealth.calories > 0 || parsedHealth.live)) {
+          if (parsedHealth && parsedHealth.live) {
             setHealthData(parsedHealth)
             setHealthLoaded(true)
           }

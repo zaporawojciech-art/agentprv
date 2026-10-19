@@ -22,17 +22,17 @@ export interface GoogleFitDataResponse {
 }
 
 const DEFAULT_FIT_DATA: Omit<GoogleFitDataResponse, 'lastSyncTime' | 'live' | 'account' | 'source'> = {
-  steps: 8420,
+  steps: 0,
   stepsGoal: 10000,
-  calories: 540,
+  calories: 0,
   caloriesGoal: 600,
-  activeMinutes: 45,
+  activeMinutes: 0,
   activeMinutesGoal: 30,
-  heartRate: 64,
-  heartRateResting: 58,
-  distanceKm: 6.2,
-  sleepDuration: '7h 35m',
-  sleepScore: 86,
+  heartRate: 0,
+  heartRateResting: 0,
+  distanceKm: 0,
+  sleepDuration: '--',
+  sleepScore: 0,
 }
 
 async function getServiceAccountAccessToken(): Promise<string | null> {
