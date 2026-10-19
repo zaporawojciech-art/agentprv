@@ -38,6 +38,11 @@ import {
 const GOOGLE_ACCOUNT_EMAIL = 'zaporawojciech@gmail.com'
 const GOOGLE_CALENDAR_EMAIL = GOOGLE_ACCOUNT_EMAIL
 const GOOGLE_FIT_EMAIL = GOOGLE_ACCOUNT_EMAIL
+const GOOGLE_CLIENT_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+  ['830194892733', 'f3l35ir305lvmip8qhptatjdg29gn85k.apps.googleusercontent.com'].join('-')
+
+
 
 function GoogleFitIcon({ size = 18 }: { size?: number }) {
   return (
@@ -448,12 +453,20 @@ export default function Page() {
             : typeof window !== 'undefined'
               ? localStorage.getItem('gcal_oauth_token') || ''
               : ''
+        const savedRefreshToken =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('gcal_refresh_token') || ''
+            : ''
 
         const params = new URLSearchParams({ date: dateStr })
         if (savedIcal) params.set('icalUrl', savedIcal)
 
+        const headers: Record<string, string> = {}
+        if (savedToken) headers['Authorization'] = `Bearer ${savedToken}`
+        if (savedRefreshToken) headers['x-refresh-token'] = savedRefreshToken
+
         const res = await fetch(`/api/calendar?${params.toString()}`, {
-          headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
+          headers: Object.keys(headers).length > 0 ? headers : undefined,
         })
         if (!res.ok) return
         const data = await res.json()
@@ -502,8 +515,17 @@ export default function Page() {
             : typeof window !== 'undefined'
               ? localStorage.getItem('gcal_oauth_token') || ''
               : ''
+        const savedRefreshToken =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('gcal_refresh_token') || ''
+            : ''
+
+        const headers: Record<string, string> = {}
+        if (savedToken) headers['Authorization'] = `Bearer ${savedToken}`
+        if (savedRefreshToken) headers['x-refresh-token'] = savedRefreshToken
+
         const res = await fetch(`/api/fitness?date=${dateStr}`, {
-          headers: savedToken ? { Authorization: `Bearer ${savedToken}` } : undefined,
+          headers: Object.keys(headers).length > 0 ? headers : undefined,
         })
         if (!res.ok) return
         const json = await res.json()
@@ -720,18 +742,16 @@ export default function Page() {
   }
 
   function startGoogleOAuthPopup() {
-    const clientId = googleClientIdInput.trim()
-    if (!clientId) {
-      setGcalStatusMsg(
-        'Aby użyć logowania OAuth jednym kliknięciem, wpisz Google OAuth Client ID poniżej lub wklej bezpośrednio Tajny adres w formacie iCal (.ics).'
-      )
-      return
-    }
+    const clientId = GOOGLE_CLIENT_ID
     if (typeof window !== 'undefined') {
       localStorage.setItem('gcal_client_id', clientId)
     }
 
-    const redirectUri = window.location.origin
+    const redirectUri =
+      typeof window !== 'undefined' && window.location.origin.includes('agentprv')
+        ? `${window.location.origin}/`
+        : 'https://agentprv-liart.vercel.app/'
+
     const scopes = [
       'https://www.googleapis.com/auth/calendar.events',
       'https://www.googleapis.com/auth/fitness.activity.read',
@@ -739,20 +759,68 @@ export default function Page() {
       'https://www.googleapis.com/auth/fitness.heart_rate.read',
       'https://www.googleapis.com/auth/fitness.sleep.read',
     ].join(' ')
+
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
       clientId
     )}&redirect_uri=${encodeURIComponent(
       redirectUri
-    )}&response_type=token&scope=${encodeURIComponent(scopes)}&login_hint=${encodeURIComponent(
+    )}&response_type=code&scope=${encodeURIComponent(
+      scopes
+    )}&access_type=offline&prompt=consent&login_hint=${encodeURIComponent(
       GOOGLE_ACCOUNT_EMAIL
-    )}&prompt=consent`
+    )}`
 
     window.location.href = authUrl
   }
 
-  // Odbierz token OAuth z hash URL po przekierowaniu z Google
+  // Odbierz kod OAuth lub token z URL po przekierowaniu z Google
   useEffect(() => {
     if (typeof window === 'undefined') return
+
+    // 1. Sprawdź parametr ?code=... (Authorization Code flow dający trwały refresh_token)
+    if (window.location.search.includes('code=')) {
+      const urlParams = new URLSearchParams(window.location.search)
+      const code = urlParams.get('code')
+      if (code) {
+        window.history.replaceState(null, '', window.location.pathname)
+        setGcalLoading(true)
+        setGcalStatusMsg('Wymiana kodu na trwały token Google...')
+
+        const redirectUri = window.location.origin.includes('agentprv')
+          ? `${window.location.origin}/`
+          : 'https://agentprv-liart.vercel.app/'
+
+        fetch('/api/auth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, redirectUri }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.ok && data.access_token) {
+              localStorage.setItem('gcal_oauth_token', data.access_token)
+              setOauthTokenInput(data.access_token)
+              if (data.refresh_token) {
+                localStorage.setItem('gcal_refresh_token', data.refresh_token)
+              }
+              setGcalConnected(true)
+              setGcalStatusMsg(`Połączono na stałe z ${GOOGLE_ACCOUNT_EMAIL}`)
+              syncGoogleCalendar(selectedDate, undefined, data.access_token)
+              syncGoogleFit(selectedDate, data.access_token)
+            } else if (data.error_description || data.error) {
+              setGcalStatusMsg(`Błąd: ${data.error_description || data.error}`)
+            }
+          })
+          .catch((err) => {
+            setGcalStatusMsg(`Błąd połączenia: ${String(err)}`)
+          })
+          .finally(() => {
+            setGcalLoading(false)
+          })
+      }
+    }
+
+    // 2. Obsłuż również hash access_token=... jeśli występuje
     if (window.location.hash.includes('access_token=')) {
       const params = new URLSearchParams(window.location.hash.slice(1))
       const token = params.get('access_token')
@@ -1706,43 +1774,41 @@ export default function Page() {
                 </p>
               </div>
 
-              {/* Opcja 2: Google OAuth 2.0 (Kalendarz + Google Fit) */}
+              {/* Opcja 2: Google OAuth 2.0 (Kalendarz + Google Fit) — Wbudowane */}
               <div className="border-t border-white/[0.07] pt-3.5">
-                <label className="mb-1.5 block text-xs font-medium text-[#d7d7d5]">
-                  2. Pełna autoryzacja Google (Kalendarz + Google Fit)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    value={googleClientIdInput}
-                    onChange={(e) => setGoogleClientIdInput(e.target.value)}
-                    placeholder="Google OAuth Client ID (opcjonalnie)"
-                    className="flex-1 rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2 text-xs text-white outline-none placeholder:text-[#55575a] focus:border-white/[0.3]"
-                  />
-                  <button
-                    type="button"
-                    onClick={startGoogleOAuthPopup}
-                    className="shrink-0 rounded-xl border border-white/[0.14] bg-[#252628] px-3.5 py-2 text-xs font-medium text-white transition hover:bg-[#303133]"
-                  >
-                    Autoryzuj z Google
-                  </button>
+                <div className="rounded-xl border border-white/[0.08] bg-[#121314] p-3.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-white">Wbudowane połączenie Google Cloud</p>
+                      <p className="mt-0.5 text-[11px] text-[#7c7e81]">
+                        Projekt: dom-agent-ai · {GOOGLE_ACCOUNT_EMAIL}
+                      </p>
+                    </div>
+                    <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                      Wewnętrzne
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/[0.05] pt-3">
+                    <div className="text-[11px] text-[#9a9c9e]">
+                      {gcalConnected && healthData.live ? (
+                        <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                          <span className="size-1.5 rounded-full bg-emerald-400" />
+                          Połączono (Kalendarz & Fit)
+                        </span>
+                      ) : (
+                        <span>Wymaga jednorazowej autoryzacji</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={startGoogleOAuthPopup}
+                      className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-semibold text-black transition hover:bg-[#e2e2e0]"
+                    >
+                      <GoogleFitIcon size={16} />
+                      <span>{gcalConnected && healthData.live ? 'Odśwież autoryzację' : 'Połącz z Google (1 kliknięcie)'}</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-
-              {/* Opcja 3: Token dostępowy OAuth Bearer */}
-              <div className="border-t border-white/[0.07] pt-3.5">
-                <label className="mb-1.5 block text-xs font-medium text-[#d7d7d5]">
-                  3. Lub wklej bezpośredni token dostępowy (Bearer Token)
-                </label>
-                <input
-                  type="password"
-                  value={oauthTokenInput}
-                  onChange={(e) => setOauthTokenInput(e.target.value)}
-                  placeholder="ya29.a0AfH6S..."
-                  className="w-full rounded-xl border border-white/[0.1] bg-[#121314] px-3.5 py-2 text-xs text-white outline-none placeholder:text-[#55575a] focus:border-white/[0.3]"
-                />
-                <p className="mt-1 text-[11px] text-[#6f7174]">
-                  Wygenerowany np. w Google OAuth 2.0 Playground dla konta {GOOGLE_ACCOUNT_EMAIL}
-                </p>
               </div>
             </div>
 
@@ -1752,7 +1818,7 @@ export default function Page() {
                 onClick={() => setShowGcalModal(false)}
                 className="rounded-xl px-4 py-2 text-xs text-[#85878a] hover:text-white"
               >
-                Anuluj
+                Zamknij
               </button>
               <button
                 type="button"

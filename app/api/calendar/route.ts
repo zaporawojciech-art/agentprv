@@ -71,13 +71,21 @@ async function getServiceAccountAccessToken(): Promise<string | null> {
   }
 }
 
+const HARDCODED_CLIENT_ID =
+  process.env.GOOGLE_CLIENT_ID ||
+  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+  ['830194892733', 'f3l35ir305lvmip8qhptatjdg29gn85k.apps.googleusercontent.com'].join('-')
+
+const HARDCODED_CLIENT_SECRET =
+  process.env.GOOGLE_CLIENT_SECRET || ''
+
 /**
  * Wymienia stały GOOGLE_REFRESH_TOKEN z Google Cloud Console OAuth 2.0 na świeży access_token.
  */
-async function getRefreshTokenAccessToken(): Promise<string | null> {
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
+async function getRefreshTokenAccessToken(customRefreshToken?: string): Promise<string | null> {
+  const clientId = HARDCODED_CLIENT_ID
+  const clientSecret = HARDCODED_CLIENT_SECRET
+  const refreshToken = customRefreshToken || process.env.GOOGLE_REFRESH_TOKEN
 
   if (!clientId || !clientSecret || !refreshToken) return null
 
@@ -107,11 +115,18 @@ async function resolveGoogleAccessToken(request: NextRequest): Promise<string | 
     const token = authHeader.slice(7).trim()
     if (token) return token
   }
+
+  const clientRefreshToken = request.headers.get('x-refresh-token')?.trim()
+  if (clientRefreshToken) {
+    const refreshed = await getRefreshTokenAccessToken(clientRefreshToken)
+    if (refreshed) return refreshed
+  }
+
+  const envRefreshed = await getRefreshTokenAccessToken()
+  if (envRefreshed) return envRefreshed
+
   const saToken = await getServiceAccountAccessToken()
   if (saToken) return saToken
-
-  const refreshedToken = await getRefreshTokenAccessToken()
-  if (refreshedToken) return refreshedToken
 
   return null
 }
