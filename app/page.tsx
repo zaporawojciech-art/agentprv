@@ -348,6 +348,11 @@ const calendarCells = [
 
 export default function Page() {
   const [selectedDate, setSelectedDate] = useState(() => new Date().getDate())
+  const selectedDateRef = useRef(selectedDate)
+  useEffect(() => {
+    selectedDateRef.current = selectedDate
+  }, [selectedDate])
+
   const [view, setView] = useState<'Dzień' | 'Tydzień'>('Dzień')
   const [events, setEvents] = useState<CalendarEventItem[]>([])
   const [calendarLoaded, setCalendarLoaded] = useState(false)
@@ -427,12 +432,13 @@ export default function Page() {
   }, [allMonthEvents])
 
   const syncGoogleCalendar = useCallback(
-    async (day: number, customIcal?: string, customToken?: string) => {
-      setGcalLoading(true)
+    async (day?: number, customIcal?: string, customToken?: string, silent = false) => {
+      if (!silent) setGcalLoading(true)
       try {
+        const targetDay = day !== undefined ? day : selectedDateRef.current
         const year = new Date().getFullYear()
         const month = String(new Date().getMonth() + 1).padStart(2, '0')
-        const dateStr = `${year}-${month}-${String(day).padStart(2, '0')}`
+        const dateStr = `${year}-${month}-${String(targetDay).padStart(2, '0')}`
 
         const savedIcal =
           customIcal !== undefined
@@ -486,7 +492,7 @@ export default function Page() {
       } catch {
         // Ignoruj błędy sieciowe w trybie offline
       } finally {
-        setGcalLoading(false)
+        if (!silent) setGcalLoading(false)
         setCalendarLoaded(true)
       }
     },
@@ -494,10 +500,10 @@ export default function Page() {
   )
 
   const syncGoogleFit = useCallback(
-    async (day?: number, customToken?: string) => {
-      setFitLoading(true)
+    async (day?: number, customToken?: string, silent = false) => {
+      if (!silent) setFitLoading(true)
       try {
-        const targetDay = day !== undefined ? day : selectedDate
+        const targetDay = day !== undefined ? day : selectedDateRef.current
         const year = new Date().getFullYear()
         const month = String(new Date().getMonth() + 1).padStart(2, '0')
         const dateStr = `${year}-${month}-${String(targetDay).padStart(2, '0')}`
@@ -539,65 +545,173 @@ export default function Page() {
       } catch {
         // offline fallback
       } finally {
-        setFitLoading(false)
+        if (!silent) setFitLoading(false)
         setHealthLoaded(true)
       }
     },
-    [selectedDate]
+    []
   )
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedIcal = localStorage.getItem('gcal_ical_url') || ''
-      const savedToken = localStorage.getItem('gcal_oauth_token') || ''
-      const savedClientId =
-        localStorage.getItem('gcal_client_id') ||
-        process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
-        ''
-      setIcalInput(savedIcal)
-      setOauthTokenInput(savedToken)
-      setGoogleClientIdInput(savedClientId)
+  // Pobierz aktualną pogodę dla Mińska Mazowieckiego (52.1794° N, 21.5725° E)
+  // oraz 12 kolejnych godzin dziennych (z pominięciem godzin nocnych 22:00 - 06:00)
+  const fetchMinskWeather = useCallback(async () => {
+    try {
+      const res = await fetch(
+        'https://api.open-meteo.com/v1/forecast?latitude=52.1794&longitude=21.5725&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&timezone=Europe%2FWarsaw&forecast_days=3'
+      )
+      if (!res.ok) return
+      const data = await res.json()
 
-      // Natychmiast przywróć dane kalendarza z cache localStorage, aby uniknąć migotania
-      try {
-        const year = new Date().getFullYear()
-        const month = String(new Date().getMonth() + 1).padStart(2, '0')
-        const dateStr = `${year}-${month}-${String(selectedDate).padStart(2, '0')}`
-        const savedEvents = localStorage.getItem(`agentprv_gcal_events_${dateStr}`)
-        if (savedEvents) {
-          const parsed = JSON.parse(savedEvents)
-          if (Array.isArray(parsed)) {
-            setEvents(parsed)
-            setCalendarLoaded(true)
-          }
+      let currentWeatherData: { temp: number; code: number } | null = null
+      if (data?.current) {
+        currentWeatherData = {
+          temp: Math.round(data.current.temperature_2m),
+          code: data.current.weather_code ?? 1,
         }
-        const savedAllMonth = localStorage.getItem('agentprv_gcal_all_month')
-        if (savedAllMonth) {
-          const parsedAll = JSON.parse(savedAllMonth)
-          if (Array.isArray(parsedAll)) setAllMonthEvents(parsedAll)
-        }
-      } catch {}
+        setCurrentWeather(currentWeatherData)
+      }
 
-      // Natychmiast przywróć dane zdrowia z cache localStorage, jeśli pochodzą z live sync
-      try {
-        const savedHealth = localStorage.getItem('agentprv_google_fit_health')
-        if (savedHealth) {
-          const parsedHealth = JSON.parse(savedHealth)
-          if (parsedHealth && parsedHealth.live) {
-            setHealthData(parsedHealth)
-            setHealthLoaded(true)
-          }
+      if (data?.hourly?.time && data?.hourly?.temperature_2m) {
+        const now = new Date()
+        const todayDay = now.getDate()
+        const currentHourTimestamp = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          now.getHours(),
+          0,
+          0
+        ).getTime()
+
+        const nextDaytimeHours: HourlyForecastItem[] = []
+
+        for (let i = 0; i < data.hourly.time.length; i++) {
+          const isoTime: string = data.hourly.time[i]
+          const itemDate = new Date(isoTime)
+          // Odrzuć wszystkie minione godziny (np. jeśli jest 10:00, odrzuca 07:00, 08:00, 09:00 z dzisiaj)
+          if (itemDate.getTime() < currentHourTimestamp) continue
+
+          const hourNum = itemDate.getHours()
+          // Pomijamy godziny nocne 22:00 - 06:00 (zostawiamy godziny dzienne 07:00 - 21:00)
+          if (hourNum >= 22 || hourNum <= 6) continue
+
+          const hourLabel = `${String(hourNum).padStart(2, '0')}:00`
+          const isNow = itemDate.getTime() === currentHourTimestamp
+          const isTomorrow = itemDate.getDate() !== todayDay
+
+          nextDaytimeHours.push({
+            id: isoTime,
+            hour: hourLabel,
+            temp: Math.round(data.hourly.temperature_2m[i]),
+            code: data.hourly.weather_code?.[i] ?? 1,
+            isNow,
+            isTomorrow,
+          })
+
+          if (nextDaytimeHours.length >= 12) break
         }
-      } catch {}
+
+        if (nextDaytimeHours.length > 0) {
+          setHourlyForecast(nextDaytimeHours)
+          try {
+            localStorage.setItem(
+              'agentprv_weather_cache',
+              JSON.stringify({
+                currentWeather: currentWeatherData,
+                hourlyForecast: nextDaytimeHours,
+                timestamp: Date.now(),
+              })
+            )
+          } catch {}
+        }
+      }
+    } catch {
+      // Zachowaj dane zapasowe w trybie offline
     }
+  }, [])
+
+  // 1. Inicjalizacja danych z cache i rejestracja ustawień po montowaniu
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const savedIcal = localStorage.getItem('gcal_ical_url') || ''
+    const savedToken = localStorage.getItem('gcal_oauth_token') || ''
+    const savedClientId =
+      localStorage.getItem('gcal_client_id') ||
+      process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
+      ''
+    setIcalInput(savedIcal)
+    setOauthTokenInput(savedToken)
+    setGoogleClientIdInput(savedClientId)
+
+    // Przywróć pogodę z cache
+    try {
+      const cachedWeather = localStorage.getItem('agentprv_weather_cache')
+      if (cachedWeather) {
+        const parsed = JSON.parse(cachedWeather)
+        if (parsed?.currentWeather) setCurrentWeather(parsed.currentWeather)
+        if (Array.isArray(parsed?.hourlyForecast) && parsed.hourlyForecast.length > 0) {
+          setHourlyForecast(parsed.hourlyForecast)
+        }
+      }
+    } catch {}
+
+    // Przywróć wydarzenia z cache
+    try {
+      const year = new Date().getFullYear()
+      const month = String(new Date().getMonth() + 1).padStart(2, '0')
+      const dateStr = `${year}-${month}-${String(selectedDateRef.current).padStart(2, '0')}`
+      const savedEvents = localStorage.getItem(`agentprv_gcal_events_${dateStr}`)
+      if (savedEvents) {
+        const parsed = JSON.parse(savedEvents)
+        if (Array.isArray(parsed)) {
+          setEvents(parsed)
+          setCalendarLoaded(true)
+        }
+      }
+      const savedAllMonth = localStorage.getItem('agentprv_gcal_all_month')
+      if (savedAllMonth) {
+        const parsedAll = JSON.parse(savedAllMonth)
+        if (Array.isArray(parsedAll)) setAllMonthEvents(parsedAll)
+      }
+    } catch {}
+
+    // Przywróć zdrowie z cache, jeśli live
+    try {
+      const savedHealth = localStorage.getItem('agentprv_google_fit_health')
+      if (savedHealth) {
+        const parsedHealth = JSON.parse(savedHealth)
+        if (parsedHealth && parsedHealth.live) {
+          setHealthData(parsedHealth)
+          setHealthLoaded(true)
+        }
+      }
+    } catch {}
+
+    // PWA Service Worker & Fullscreen
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
+  // 2. Pobieranie danych przy wyborze konkretnego dnia
+  useEffect(() => {
     syncGoogleCalendar(selectedDate)
     syncGoogleFit(selectedDate)
-
-    const fitTimer = setInterval(() => syncGoogleFit(selectedDate), 5 * 60 * 1000)
-    return () => clearInterval(fitTimer)
   }, [selectedDate, syncGoogleCalendar, syncGoogleFit])
 
+  // 3. Ciągła praca w tle 24/7 bez konieczności odświeżania strony
   useEffect(() => {
+    // A. Aktualizacja zegara i automatyczny rollover do nowego dnia o północy (00:00)
     const updateClock = () => {
       const now = new Date()
       setCurrentTime(
@@ -606,122 +720,51 @@ export default function Page() {
           minute: '2-digit',
         })
       )
+      const currentDay = now.getDate()
+      if (currentDay !== selectedDateRef.current) {
+        selectedDateRef.current = currentDay
+        setSelectedDate(currentDay)
+        syncGoogleCalendar(currentDay, undefined, undefined, true)
+        syncGoogleFit(currentDay, undefined, true)
+        fetchMinskWeather()
+      }
     }
     updateClock()
-    const timer = setInterval(updateClock, 15000)
+    const clockTimer = setInterval(updateClock, 10 * 1000)
 
-    // Przywróć ostatnią zapisaną pogodę z localStorage, aby uniknąć migotania wartości początkowych
-    try {
-      const cached = localStorage.getItem('agentprv_weather_cache')
-      if (cached) {
-        const parsed = JSON.parse(cached)
-        if (parsed?.currentWeather) {
-          setCurrentWeather(parsed.currentWeather)
-        }
-        if (Array.isArray(parsed?.hourlyForecast) && parsed.hourlyForecast.length > 0) {
-          setHourlyForecast(parsed.hourlyForecast)
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // Pobierz aktualną pogodę dla Mińska Mazowieckiego (52.1794° N, 21.5725° E)
-    // oraz 12 kolejnych godzin dziennych (z pominięciem godzin nocnych 22:00 - 06:00)
-    const fetchMinskWeather = async () => {
-      try {
-        const res = await fetch(
-          'https://api.open-meteo.com/v1/forecast?latitude=52.1794&longitude=21.5725&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&timezone=Europe%2FWarsaw&forecast_days=3'
-        )
-        if (!res.ok) return
-        const data = await res.json()
-
-        let currentWeatherData: { temp: number; code: number } | null = null
-        if (data?.current) {
-          currentWeatherData = {
-            temp: Math.round(data.current.temperature_2m),
-            code: data.current.weather_code ?? 1,
-          }
-          setCurrentWeather(currentWeatherData)
-        }
-
-        if (data?.hourly?.time && data?.hourly?.temperature_2m) {
-          const now = new Date()
-          const todayDay = now.getDate()
-          const currentHourTimestamp = new Date(
-            now.getFullYear(),
-            now.getMonth(),
-            now.getDate(),
-            now.getHours(),
-            0,
-            0
-          ).getTime()
-
-          const nextDaytimeHours: HourlyForecastItem[] = []
-
-          for (let i = 0; i < data.hourly.time.length; i++) {
-            const isoTime: string = data.hourly.time[i]
-            const itemDate = new Date(isoTime)
-            // Odrzuć wszystkie minione godziny (np. jeśli jest 10:00, odrzuca 07:00, 08:00, 09:00 z dzisiaj)
-            if (itemDate.getTime() < currentHourTimestamp) continue
-
-            const hourNum = itemDate.getHours()
-            // Pomijamy godziny nocne 22:00 - 06:00 (zostawiamy godziny dzienne 07:00 - 21:00)
-            if (hourNum >= 22 || hourNum <= 6) continue
-
-            const hourLabel = `${String(hourNum).padStart(2, '0')}:00`
-            const isNow = itemDate.getTime() === currentHourTimestamp
-            const isTomorrow = itemDate.getDate() !== todayDay
-
-            nextDaytimeHours.push({
-              id: isoTime,
-              hour: hourLabel,
-              temp: Math.round(data.hourly.temperature_2m[i]),
-              code: data.hourly.weather_code?.[i] ?? 1,
-              isNow,
-              isTomorrow,
-            })
-
-            if (nextDaytimeHours.length >= 12) break
-          }
-
-          if (nextDaytimeHours.length > 0) {
-            setHourlyForecast(nextDaytimeHours)
-            try {
-              localStorage.setItem(
-                'agentprv_weather_cache',
-                JSON.stringify({
-                  currentWeather: currentWeatherData,
-                  hourlyForecast: nextDaytimeHours,
-                  timestamp: Date.now(),
-                })
-              )
-            } catch {}
-          }
-        }
-      } catch {
-        // Zachowaj dane zapasowe w trybie offline
-      }
-    }
-
+    // B. Pierwsze pobranie pogody oraz interwał co 10 minut
     fetchMinskWeather()
-    const weatherTimer = setInterval(fetchMinskWeather, 15 * 60 * 1000)
+    const weatherTimer = setInterval(fetchMinskWeather, 10 * 60 * 1000)
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    // C. Ciągłe pobieranie w tle Kalendarza i Google Fit co 60 sekund (silent, zero migotania)
+    const backgroundPolling = () => {
+      syncGoogleCalendar(selectedDateRef.current, undefined, undefined, true)
+      syncGoogleFit(selectedDateRef.current, undefined, true)
+    }
+    const pollingTimer = setInterval(backgroundPolling, 60 * 1000)
+
+    // D. Natychmiastowe dociągnięcie po wybudzeniu ekranu tabletu lub powrocie połączenia Wi-Fi
+    const handleWakeupOrOnline = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        updateClock()
+        backgroundPolling()
+        fetchMinskWeather()
+      }
     }
 
-    const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement))
-    }
+    document.addEventListener('visibilitychange', handleWakeupOrOnline)
+    window.addEventListener('focus', handleWakeupOrOnline)
+    window.addEventListener('online', handleWakeupOrOnline)
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => {
-      clearInterval(timer)
+      clearInterval(clockTimer)
       clearInterval(weatherTimer)
-      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      clearInterval(pollingTimer)
+      document.removeEventListener('visibilitychange', handleWakeupOrOnline)
+      window.removeEventListener('focus', handleWakeupOrOnline)
+      window.removeEventListener('online', handleWakeupOrOnline)
     }
-  }, [])
+  }, [fetchMinskWeather, syncGoogleCalendar, syncGoogleFit])
 
   function handleSaveGcalSettings() {
     if (typeof window !== 'undefined') {
@@ -902,10 +945,16 @@ export default function Page() {
           <div className="flex min-w-0 flex-1 items-center gap-5">
             {/* Greeting */}
             <div className="shrink-0">
-              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#737578]">
-                Dzisiaj · {selectedDate} {new Date().toLocaleDateString('pl-PL', { month: 'long' })} ·{' '}
-                <span suppressHydrationWarning>{currentTime || '--:--'}</span>
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#737578]">
+                  Dzisiaj · {selectedDate} {new Date().toLocaleDateString('pl-PL', { month: 'long' })} ·{' '}
+                  <span suppressHydrationWarning>{currentTime || '--:--'}</span>
+                </p>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-400">
+                  <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live Sync
+                </span>
+              </div>
               <h1 className="mt-0.5 text-2xl font-semibold tracking-[-0.04em] text-[#f3f3f1]">
                 Dzień dobry, Wojtek.
               </h1>
