@@ -34,6 +34,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
+import { TodoistTasksPanel } from '@/components/todoist-tasks-panel'
 
 const GOOGLE_ACCOUNT_EMAIL = 'zaporawojciech@gmail.com'
 const GOOGLE_CALENDAR_EMAIL = GOOGLE_ACCOUNT_EMAIL
@@ -354,6 +355,44 @@ export default function Page() {
   }, [selectedDate])
 
   const [view, setView] = useState<'Dzień' | 'Tydzień'>('Dzień')
+  const [centerMode, setCenterMode] = useState<'calendar' | 'tasks'>('calendar')
+  const [showTodoistModal, setShowTodoistModal] = useState(false)
+  const [todoistToken, setTodoistToken] = useState('')
+  const [todoistTokenInput, setTodoistTokenInput] = useState('')
+  const [todoistConnected, setTodoistConnected] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const savedMode = localStorage.getItem('agentprv_center_mode')
+    if (savedMode === 'calendar' || savedMode === 'tasks') {
+      setCenterMode(savedMode)
+    }
+    const savedTodoist = localStorage.getItem('todoist_api_token') || ''
+    if (savedTodoist) {
+      setTodoistToken(savedTodoist)
+      setTodoistTokenInput(savedTodoist)
+    }
+  }, [])
+
+  function handleCenterModeChange(nextMode: 'calendar' | 'tasks') {
+    setCenterMode(nextMode)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('agentprv_center_mode', nextMode)
+    }
+  }
+
+  function handleSaveTodoistToken() {
+    const trimmed = todoistTokenInput.trim()
+    setTodoistToken(trimmed)
+    if (typeof window !== 'undefined') {
+      if (trimmed) {
+        localStorage.setItem('todoist_api_token', trimmed)
+      } else {
+        localStorage.removeItem('todoist_api_token')
+      }
+    }
+    setShowTodoistModal(false)
+  }
   const [events, setEvents] = useState<CalendarEventItem[]>([])
   const [calendarLoaded, setCalendarLoaded] = useState(false)
   const [allMonthEvents, setAllMonthEvents] = useState<CalendarEventItem[]>([])
@@ -1386,34 +1425,79 @@ export default function Page() {
           <div className="col-span-5 flex min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-[#151617] p-5">
             <div className="mb-4 flex shrink-0 items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-[#f3f3f1]">
-                {view === 'Dzień' ? 'Oś czasu dnia' : 'Przegląd tygodnia'}
+                {centerMode === 'tasks'
+                  ? 'Zadania · Todoist'
+                  : view === 'Dzień'
+                    ? 'Oś czasu dnia'
+                    : 'Przegląd tygodnia'}
               </h2>
 
-              <div className="flex shrink-0 rounded-xl border border-white/[0.08] bg-[#0d0e0f] p-1">
-                <button
-                  onClick={() => setView('Dzień')}
-                    className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition ${
-                      view === 'Dzień'
+              <div className="flex shrink-0 items-center gap-2">
+                {/* Switch Kalendarz <-> Zadania (Todoist) */}
+                <div className="flex shrink-0 rounded-xl border border-white/[0.08] bg-[#0d0e0f] p-1">
+                  <button
+                    type="button"
+                    onClick={() => handleCenterModeChange('calendar')}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                      centerMode === 'calendar'
                         ? 'bg-[#303132] text-white shadow-sm'
                         : 'text-[#77797c] hover:text-white'
                     }`}
                   >
-                    Dzień
+                    <CalendarDays size={13} />
+                    <span>Kalendarz</span>
                   </button>
                   <button
-                    onClick={() => setView('Tydzień')}
-                    className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition ${
-                      view === 'Tydzień'
+                    type="button"
+                    onClick={() => handleCenterModeChange('tasks')}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                      centerMode === 'tasks'
                         ? 'bg-[#303132] text-white shadow-sm'
                         : 'text-[#77797c] hover:text-white'
                     }`}
                   >
-                    Tydzień
+                    <ListTodo size={13} />
+                    <span>Zadania</span>
+                    {todoistConnected && (
+                      <span className="size-1.5 rounded-full bg-emerald-400" />
+                    )}
                   </button>
                 </div>
-              </div>
 
-            {view === 'Dzień' ? (
+                {centerMode === 'calendar' && (
+                  <div className="flex shrink-0 rounded-xl border border-white/[0.08] bg-[#0d0e0f] p-1">
+                    <button
+                      onClick={() => setView('Dzień')}
+                      className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition ${
+                        view === 'Dzień'
+                          ? 'bg-[#303132] text-white shadow-sm'
+                          : 'text-[#77797c] hover:text-white'
+                      }`}
+                    >
+                      Dzień
+                    </button>
+                    <button
+                      onClick={() => setView('Tydzień')}
+                      className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition ${
+                        view === 'Tydzień'
+                          ? 'bg-[#303132] text-white shadow-sm'
+                          : 'text-[#77797c] hover:text-white'
+                      }`}
+                    >
+                      Tydzień
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {centerMode === 'tasks' ? (
+              <TodoistTasksPanel
+                todoistToken={todoistToken}
+                onOpenSettings={() => setShowTodoistModal(true)}
+                onConnectionChange={setTodoistConnected}
+              />
+            ) : view === 'Dzień' ? (
               !calendarLoaded && gcalLoading ? (
                 <div className="flex min-h-0 flex-1 flex-col gap-3 py-1 pl-2 pr-1">
                   {Array.from({ length: 4 }).map((_, i) => (
@@ -1868,6 +1952,63 @@ export default function Page() {
                 className="rounded-xl bg-[#e9e9e7] px-4 py-2 text-xs font-semibold text-[#171819] transition hover:bg-white"
               >
                 Zapisz i synchronizuj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTodoistModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#151617] p-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-white">Integracja Todoist</h3>
+                <p className="mt-1 text-xs text-[#7c7e81]">
+                  Wklej swój API Token z Todoist (Ustawienia → Integracje → Deweloper) lub pozostaw
+                  puste, aby korzystać z lokalnej listy zadań.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTodoistModal(false)}
+                className="rounded-lg p-1 text-[#77797c] hover:bg-white/[0.08] hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <label className="block text-xs font-medium text-[#bfc0be]">
+                Todoist API Token
+              </label>
+              <input
+                type="password"
+                value={todoistTokenInput}
+                onChange={(e) => setTodoistTokenInput(e.target.value)}
+                placeholder="np. 0123456789abcdef..."
+                className="w-full rounded-xl border border-white/[0.1] bg-[#0d0e0f] px-3.5 py-2.5 text-sm text-white placeholder:text-[#55575a] focus:border-white/25 focus:outline-none"
+              />
+              <p className="text-[11px] text-[#6f7174]">
+                Alternatywnie możesz ustawić <code className="text-[#9a9c9e]">TODOIST_API_TOKEN</code>{' '}
+                w pliku <code className="text-[#9a9c9e]">.env.local</code>.
+              </p>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowTodoistModal(false)}
+                className="rounded-xl px-4 py-2 text-xs text-[#85878a] hover:text-white"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTodoistToken}
+                className="rounded-xl bg-[#e9e9e7] px-4 py-2 text-xs font-semibold text-[#171819] transition hover:bg-white"
+              >
+                Zapisz i połącz
               </button>
             </div>
           </div>
